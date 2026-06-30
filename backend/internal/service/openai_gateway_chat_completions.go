@@ -458,6 +458,10 @@ func (s *OpenAIGatewayService) handleChatBufferedStreamingResponse(
 	acc.SupplementResponseOutput(finalResponse)
 
 	chatResp := apicompat.ResponsesToChatCompletions(finalResponse, originalModel)
+	finalAssistantText := ExtractOpenAIAssistantFinalTextFromJSON(
+		marshalOpenAIResponseBody(chatResp),
+		"/v1/chat/completions",
+	)
 
 	if s.responseHeaderFilter != nil {
 		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
@@ -470,13 +474,15 @@ func (s *OpenAIGatewayService) handleChatBufferedStreamingResponse(
 	c.JSON(http.StatusOK, chatResp)
 
 	return &OpenAIForwardResult{
-		RequestID:     requestID,
-		Usage:         usage,
-		Model:         originalModel,
-		BillingModel:  billingModel,
-		UpstreamModel: upstreamModel,
-		Stream:        false,
-		Duration:      time.Since(startTime),
+		RequestID:          requestID,
+		ResponseID:         strings.TrimSpace(finalResponse.ID),
+		Usage:              usage,
+		FinalAssistantText: finalAssistantText,
+		Model:              originalModel,
+		BillingModel:       billingModel,
+		UpstreamModel:      upstreamModel,
+		Stream:             false,
+		Duration:           time.Since(startTime),
 	}, nil
 }
 
@@ -515,8 +521,11 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 	// 网关作为计费链路的一环，不能把下游 usage 输出绑定到客户端是否显式请求。
 	// raw Chat Completions 直转路径已经强制透出 usage，这里保持同样行为，避免级联代理计费为 0。
 	state.IncludeUsage = true
+	streamOutputAccumulator := apicompat.NewBufferedResponseAccumulator()
 
 	var usage OpenAIUsage
+	var responseID string
+	var finalAssistantText string
 	var firstTokenMs *int
 	firstChunk := true
 	clientDisconnected := false
@@ -547,15 +556,25 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 	}
 
 	resultWithUsage := func() *OpenAIForwardResult {
+		if finalAssistantText == "" && streamOutputAccumulator.HasContent() {
+			finalAssistantText = ExtractOpenAIAssistantFinalTextFromJSON(
+				marshalOpenAIResponseBody(map[string]any{
+					"output": streamOutputAccumulator.BuildOutput(),
+				}),
+				openAIResponsesEndpoint,
+			)
+		}
 		return &OpenAIForwardResult{
-			RequestID:     requestID,
-			Usage:         usage,
-			Model:         originalModel,
-			BillingModel:  billingModel,
-			UpstreamModel: upstreamModel,
-			Stream:        true,
-			Duration:      time.Since(startTime),
-			FirstTokenMs:  firstTokenMs,
+			RequestID:          requestID,
+			ResponseID:         responseID,
+			Usage:              usage,
+			FinalAssistantText: finalAssistantText,
+			Model:              originalModel,
+			BillingModel:       billingModel,
+			UpstreamModel:      upstreamModel,
+			Stream:             true,
+			Duration:           time.Since(startTime),
+			FirstTokenMs:       firstTokenMs,
 		}
 	}
 
@@ -575,6 +594,7 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 			return false
 		}
 		refusalDetector.ObservePayload([]byte(payload))
+		streamOutputAccumulator.ProcessEvent(&event)
 
 		isTerminalEvent := isOpenAICompatResponsesTerminalEvent(event.Type)
 		if isTerminalEvent {
@@ -583,6 +603,17 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 			}
 			if event.Response != nil && event.Response.Usage != nil {
 				usage = copyOpenAIUsageFromResponsesUsage(event.Response.Usage)
+			}
+			if event.Response != nil {
+				responseID = strings.TrimSpace(event.Response.ID)
+				responseForRetention := *event.Response
+				if len(responseForRetention.Output) == 0 && streamOutputAccumulator.HasContent() {
+					responseForRetention.Output = streamOutputAccumulator.BuildOutput()
+				}
+				finalAssistantText = ExtractOpenAIAssistantFinalTextFromJSON(
+					marshalOpenAIResponseBody(&responseForRetention),
+					openAIResponsesEndpoint,
+				)
 			}
 		}
 		if strings.TrimSpace(event.Type) == "response.failed" {

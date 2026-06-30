@@ -134,8 +134,8 @@ func (s *OpenAIGatewayService) forwardResponsesViaRawChatCompletions(
 			}
 		}
 	}
-	if customUA := account.GetOpenAIUserAgent(); customUA != "" {
-		upstreamReq.Header.Set("user-agent", customUA)
+	if resolvedUA := s.resolveOpenAIUpstreamUserAgent(ctx, account, c.GetHeader("User-Agent"), account.GetOpenAIUserAgent()); resolvedUA != "" {
+		upstreamReq.Header.Set("user-agent", resolvedUA)
 	}
 
 	proxyURL := ""

@@ -1166,17 +1166,24 @@ func (s *OpenAIGatewayService) buildOpenAIWSHeaders(
 	if account != nil {
 		customUA = account.GetOpenAIUserAgent()
 	}
-	if strings.TrimSpace(customUA) != "" {
-		headers.Set("user-agent", customUA)
-	} else if c != nil {
-		if ua := strings.TrimSpace(c.GetHeader("User-Agent")); ua != "" {
-			headers.Set("user-agent", ua)
+	requestUA := ""
+	requestCtx := context.Background()
+	if c != nil {
+		requestUA = strings.TrimSpace(c.GetHeader("User-Agent"))
+		if c.Request != nil {
+			requestCtx = c.Request.Context()
 		}
+	}
+	resolvedUA := s.resolveOpenAIUpstreamUserAgent(requestCtx, account, requestUA, customUA)
+	if resolvedUA != "" {
+		headers.Set("user-agent", resolvedUA)
+	} else if requestUA != "" {
+		headers.Set("user-agent", requestUA)
 	}
 	if s != nil && s.cfg != nil && s.cfg.Gateway.ForceCodexCLI {
 		headers.Set("user-agent", codexCLIUserAgent)
 	}
-	if account != nil && account.Type == AccountTypeOAuth && !openai.IsCodexCLIRequest(headers.Get("user-agent")) {
+	if s.shouldForceCodexCLIForOAuth(account, headers.Get("user-agent")) && resolvedUA == "" {
 		headers.Set("user-agent", codexCLIUserAgent)
 	}
 

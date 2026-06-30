@@ -91,6 +91,80 @@ export interface ApiKeyDailyUsageResponse {
   end_date: string
 }
 
+export interface OpenAIReasoningGuardSummary {
+  request_count: number
+  match_count: number
+  match_ratio: number
+  intercept_count: number
+  intercept_ratio: number
+}
+
+export interface OpenAIReasoningGuardTrendPoint {
+  date: string
+  request_count: number
+  match_count: number
+  match_ratio: number
+  intercept_count: number
+  intercept_ratio: number
+}
+
+export interface OpenAIReasoningGuardBreakdownItem {
+  key: string
+  request_count: number
+  match_count: number
+  match_ratio: number
+  intercept_count: number
+  intercept_ratio: number
+}
+
+export interface OpenAIReasoningGuardModelEffortItem {
+  model: string
+  reasoning_effort: string
+  key: string
+  request_count: number
+  match_count: number
+  match_ratio: number
+  intercept_count: number
+  intercept_ratio: number
+}
+
+export interface OpenAIReasoningGuardModelEffortTrendPoint {
+  date: string
+  model: string
+  reasoning_effort: string
+  key: string
+  request_count: number
+  match_count: number
+  match_ratio: number
+  intercept_count: number
+  intercept_ratio: number
+}
+
+export interface OpenAIReasoningGuardRuntimeRule {
+  model: string
+  codes: number[]
+}
+
+export interface OpenAIReasoningGuardRuntime {
+  enabled: boolean
+  intercept_status_code: number
+  rules: OpenAIReasoningGuardRuntimeRule[]
+}
+
+export interface OpenAIReasoningGuardStatsResponse {
+  summary: OpenAIReasoningGuardSummary
+  trend: OpenAIReasoningGuardTrendPoint[]
+  models: OpenAIReasoningGuardBreakdownItem[]
+  reasoning_efforts: OpenAIReasoningGuardBreakdownItem[]
+  model_efforts: OpenAIReasoningGuardModelEffortItem[]
+  model_effort_trend: OpenAIReasoningGuardModelEffortTrendPoint[]
+  runtime: OpenAIReasoningGuardRuntime
+  period: string
+  granularity: string
+  start_date: string
+  end_date: string
+}
+
 /**
  * List usage logs with optional filters
  * @param page - Page number (default: 1)
@@ -253,6 +327,16 @@ export async function getDashboardModels(params?: {
   end_date?: string
 }): Promise<ModelStatsResponse> {
   const { data } = await apiClient.get<ModelStatsResponse>('/usage/dashboard/models', { params })
+  return data
+}
+
+export async function getOpenAIReasoningGuardStats(params?: {
+  period?: 'today' | '3d' | '7d' | '30d' | '90d'
+  start_date?: string
+  end_date?: string
+  granularity?: 'day' | 'hour'
+}): Promise<OpenAIReasoningGuardStatsResponse> {
+  const { data } = await apiClient.get<OpenAIReasoningGuardStatsResponse>('/usage/openai-reasoning-guard', { params })
   return data
 }
 

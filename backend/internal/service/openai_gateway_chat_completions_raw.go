@@ -159,9 +159,8 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 			}
 		}
 	}
-	customUA := account.GetOpenAIUserAgent()
-	if customUA != "" {
-		upstreamReq.Header.Set("user-agent", customUA)
+	if resolvedUA := s.resolveOpenAIUpstreamUserAgent(ctx, account, c.GetHeader("User-Agent"), account.GetOpenAIUserAgent()); resolvedUA != "" {
+		upstreamReq.Header.Set("user-agent", resolvedUA)
 	} else if account.Platform == PlatformGrok {
 		upstreamReq.Header.Set("user-agent", "sub2api-grok/1.0")
 	}
@@ -456,6 +455,10 @@ func extractCCStreamUsage(payload string) *OpenAIUsage {
 		InputTokens:  int(gjson.Get(payload, "usage.prompt_tokens").Int()),
 		OutputTokens: int(gjson.Get(payload, "usage.completion_tokens").Int()),
 	}
+	if reasoning := gjson.Get(payload, "usage.completion_tokens_details.reasoning_tokens"); reasoning.Exists() {
+		u.ReasoningTokens = int(reasoning.Int())
+		u.HasReasoningTokens = true
+	}
 	if cached := gjson.Get(payload, "usage.prompt_tokens_details.cached_tokens"); cached.Exists() {
 		u.CacheReadInputTokens = int(cached.Int())
 	}
@@ -487,11 +490,16 @@ func (s *OpenAIGatewayService) bufferRawChatCompletions(
 	var usage OpenAIUsage
 	if err := json.Unmarshal(respBody, &ccResp); err == nil && ccResp.Usage != nil {
 		usage = OpenAIUsage{
-			InputTokens:  ccResp.Usage.PromptTokens,
-			OutputTokens: ccResp.Usage.CompletionTokens,
+			InputTokens:     ccResp.Usage.PromptTokens,
+			OutputTokens:    ccResp.Usage.CompletionTokens,
+			ReasoningTokens: 0,
 		}
 		if ccResp.Usage.PromptTokensDetails != nil {
 			usage.CacheReadInputTokens = ccResp.Usage.PromptTokensDetails.CachedTokens
+		}
+		if ccResp.Usage.CompletionTokensDetails != nil {
+			usage.ReasoningTokens = ccResp.Usage.CompletionTokensDetails.ReasoningTokens
+			usage.HasReasoningTokens = true
 		}
 	}
 

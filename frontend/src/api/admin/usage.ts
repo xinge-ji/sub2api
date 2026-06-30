@@ -4,7 +4,7 @@
  */
 
 import { apiClient } from '../client'
-import type { AdminUsageLog, UsageQueryParams, PaginatedResponse, UsageRequestType } from '@/types'
+import type { AdminUsageLog, UsageQueryParams, PaginatedResponse, UsageRequestType, OpenAIConversationRetentionView, OpenAIConversationRetentionListItem } from '@/types'
 import type { EndpointStat } from '@/types'
 
 // ==================== Types ====================
@@ -24,6 +24,58 @@ export interface AdminUsageStatsResponse {
   endpoints?: EndpointStat[]
   upstream_endpoints?: EndpointStat[]
   endpoint_paths?: EndpointStat[]
+}
+
+export interface AdminOpenAIReasoningGuardSummary {
+  request_count: number
+  match_count: number
+  match_ratio: number
+  intercept_count: number
+  intercept_ratio: number
+}
+
+export interface AdminOpenAIReasoningGuardModelEffortItem {
+  model: string
+  reasoning_effort: string
+  key: string
+  request_count: number
+  match_count: number
+  match_ratio: number
+  intercept_count: number
+  intercept_ratio: number
+}
+
+export interface AdminOpenAIReasoningGuardModelEffortTrendPoint {
+  date: string
+  model: string
+  reasoning_effort: string
+  key: string
+  request_count: number
+  match_count: number
+  match_ratio: number
+  intercept_count: number
+  intercept_ratio: number
+}
+
+export interface AdminOpenAIReasoningGuardRuntimeRule {
+  model: string
+  codes: number[]
+}
+
+export interface AdminOpenAIReasoningGuardRuntime {
+  enabled: boolean
+  intercept_status_code: number
+  rules: AdminOpenAIReasoningGuardRuntimeRule[]
+}
+
+export interface AdminOpenAIReasoningGuardStatsResponse {
+  summary: AdminOpenAIReasoningGuardSummary
+  model_efforts: AdminOpenAIReasoningGuardModelEffortItem[]
+  model_effort_trend: AdminOpenAIReasoningGuardModelEffortTrendPoint[]
+  runtime: AdminOpenAIReasoningGuardRuntime
+  granularity: string
+  start_date: string
+  end_date: string
 }
 
 export interface SimpleUser {
@@ -131,6 +183,25 @@ export async function getStats(params: {
   return data
 }
 
+export async function getOpenAIReasoningGuardStats(params: {
+  user_id?: number
+  api_key_id?: number
+  account_id?: number
+  group_id?: number
+  model?: string
+  request_type?: UsageRequestType
+  stream?: boolean
+  start_date?: string
+  end_date?: string
+  granularity?: 'day' | 'hour'
+  timezone?: string
+}): Promise<AdminOpenAIReasoningGuardStatsResponse> {
+  const { data } = await apiClient.get<AdminOpenAIReasoningGuardStatsResponse>('/admin/usage/openai-reasoning-guard', {
+    params
+  })
+  return data
+}
+
 /**
  * Search users by email keyword (admin only)
  * @param keyword - Email keyword to search
@@ -200,9 +271,28 @@ export async function cancelCleanupTask(taskId: number): Promise<{ id: number; s
   return data
 }
 
+export async function getConversationByRequestId(requestId: string): Promise<OpenAIConversationRetentionView> {
+  const { data } = await apiClient.get<OpenAIConversationRetentionView>(`/admin/usage/conversations/by-request/${encodeURIComponent(requestId)}`)
+  return data
+}
+
+export async function listConversations(
+  params: AdminUsageQueryParams & { reasoning_effort?: string; timezone?: string },
+  options?: { signal?: AbortSignal }
+): Promise<PaginatedResponse<OpenAIConversationRetentionListItem>> {
+  const { data } = await apiClient.get<PaginatedResponse<OpenAIConversationRetentionListItem>>('/admin/usage/conversations', {
+    params,
+    signal: options?.signal
+  })
+  return data
+}
+
 export const adminUsageAPI = {
   list,
   getStats,
+  getOpenAIReasoningGuardStats,
+  listConversations,
+  getConversationByRequestId,
   searchUsers,
   searchApiKeys,
   listCleanupTasks,

@@ -400,6 +400,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		// Forward request
 		service.SetOpsLatencyMs(c, service.OpsRoutingLatencyMsKey, time.Since(routingStart).Milliseconds())
 		forwardStart := time.Now()
+		reasoningGuardCapture := h.beginOpenAIReasoningGuardCapture(c)
 		writerSizeBeforeForward := c.Writer.Size()
 		result, err := func() (*service.OpenAIForwardResult, error) {
 			defer func() {
@@ -425,6 +426,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 			service.SetOpsLatencyMs(c, service.OpsTimeToFirstTokenMsKey, int64(*result.FirstTokenMs))
 		}
 		if err != nil {
+			h.restoreOpenAIReasoningGuardWriter(c, reasoningGuardCapture)
 			if result != nil && result.ImageCount > 0 {
 				reqLog.Warn("openai.forward_partial_error_with_image_result",
 					zap.Int64("account_id", account.ID),
@@ -434,7 +436,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 			} else {
 				var failoverErr *service.UpstreamFailoverError
 				if errors.As(err, &failoverErr) {
-					if c.Writer.Size() != writerSizeBeforeForward {
+					if h.openAIReasoningGuardClientOutputStarted(reasoningGuardCapture, false) || c.Writer.Size() != writerSizeBeforeForward {
 						h.handleFailoverExhausted(c, failoverErr, true)
 						return
 					}
@@ -510,6 +512,8 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		// 捕获请求信息（用于异步记录，避免在 goroutine 中访问 gin.Context）
 		userAgent := c.GetHeader("User-Agent")
 		clientIP := ip.GetClientIP(c)
+		clientSessionID := c.GetHeader("session_id")
+		clientConversationID := c.GetHeader("conversation_id")
 		requestPayloadHash := service.HashUsageRequestPayload(body)
 		inboundEndpoint := GetInboundEndpoint(c)
 		upstreamEndpoint := resolveOpenAIUpstreamEndpoint(c, account)
@@ -525,6 +529,9 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 				Subscription:       subscription,
 				InboundEndpoint:    inboundEndpoint,
 				UpstreamEndpoint:   upstreamEndpoint,
+				RequestBody:        body,
+				ClientSessionID:    clientSessionID,
+				ClientConversationID: clientConversationID,
 				UserAgent:          userAgent,
 				IPAddress:          clientIP,
 				RequestPayloadHash: requestPayloadHash,
@@ -542,6 +549,19 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 				).Error("openai.record_usage_failed", zap.Error(err))
 			}
 		})
+		if finalizeErr := h.finalizeOpenAIReasoningGuardHTTP(
+			c.Request.Context(),
+			c,
+			reasoningGuardCapture,
+			result,
+			apiKey,
+			account,
+			subscription,
+			inboundEndpoint,
+			upstreamEndpoint,
+		); finalizeErr != nil {
+			reqLog.Error("openai.reasoning_guard_finalize_failed", zap.Error(finalizeErr))
+		}
 		reqLog.Debug("openai.request_completed",
 			zap.Int64("account_id", account.ID),
 			zap.Int("switch_count", switchCount),
@@ -816,6 +836,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 
 		service.SetOpsLatencyMs(c, service.OpsRoutingLatencyMsKey, time.Since(routingStart).Milliseconds())
 		forwardStart := time.Now()
+		reasoningGuardCapture := h.beginOpenAIReasoningGuardCapture(c)
 
 		defaultMappedModel := strings.TrimSpace(effectiveMappedModel)
 		// 应用渠道模型映射到请求体
@@ -845,6 +866,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 			service.SetOpsLatencyMs(c, service.OpsTimeToFirstTokenMsKey, int64(*result.FirstTokenMs))
 		}
 		if err != nil {
+			h.restoreOpenAIReasoningGuardWriter(c, reasoningGuardCapture)
 			if result != nil && result.ImageCount > 0 {
 				reqLog.Warn("openai_messages.forward_partial_error_with_image_result",
 					zap.Int64("account_id", account.ID),
@@ -854,7 +876,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 			} else {
 				var failoverErr *service.UpstreamFailoverError
 				if errors.As(err, &failoverErr) {
-					if c.Writer.Size() != writerSizeBeforeForward {
+					if h.openAIReasoningGuardClientOutputStarted(reasoningGuardCapture, false) || c.Writer.Size() != writerSizeBeforeForward {
 						h.handleAnthropicFailoverExhausted(c, failoverErr, true)
 						return
 					}
@@ -954,6 +976,19 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 				).Error("openai_messages.record_usage_failed", zap.Error(err))
 			}
 		})
+		if finalizeErr := h.finalizeOpenAIReasoningGuardHTTP(
+			c.Request.Context(),
+			c,
+			reasoningGuardCapture,
+			result,
+			apiKey,
+			account,
+			subscription,
+			inboundEndpoint,
+			upstreamEndpoint,
+		); finalizeErr != nil {
+			reqLog.Error("openai_messages.reasoning_guard_finalize_failed", zap.Error(finalizeErr))
+		}
 		reqLog.Debug("openai_messages.request_completed",
 			zap.Int64("account_id", account.ID),
 			zap.Int("switch_count", switchCount),

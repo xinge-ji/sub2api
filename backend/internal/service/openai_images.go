@@ -753,9 +753,8 @@ func (s *OpenAIGatewayService) buildOpenAIImagesRequest(
 			req.Header.Add(key, value)
 		}
 	}
-	customUA := account.GetOpenAIUserAgent()
-	if customUA != "" {
-		req.Header.Set("User-Agent", customUA)
+	if resolvedUA := s.resolveOpenAIUpstreamUserAgent(ctx, account, c.GetHeader("User-Agent"), account.GetOpenAIUserAgent()); resolvedUA != "" {
+		req.Header.Set("User-Agent", resolvedUA)
 	}
 	if strings.TrimSpace(contentType) != "" {
 		req.Header.Set("Content-Type", contentType)

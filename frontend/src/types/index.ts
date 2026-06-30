@@ -1311,8 +1311,8 @@ export interface UsageLogAccountSummary {
 }
 
 export interface AdminUsageLog extends UsageLog {
-  upstream_model?: string | null
-  model_mapping_chain?: string | null
+	upstream_model?: string | null
+	model_mapping_chain?: string | null
 
   // 账号计费倍率（仅管理员可见）
   account_rate_multiplier?: number | null
@@ -1327,7 +1327,79 @@ export interface AdminUsageLog extends UsageLog {
   ip_address?: string | null
 
   // 最小账号信息（仅管理员接口返回）
-  account?: UsageLogAccountSummary
+	account?: UsageLogAccountSummary
+}
+
+export interface OpenAIConversationRetentionSession {
+  id: number
+  user_id: number
+  api_key_id: number
+  account_id?: number | null
+  group_id?: number | null
+  session_key: string
+  client_session_id: string
+  requested_model: string
+  upstream_model: string
+  reasoning_effort: string
+  first_request_id: string
+  last_request_id: string
+  first_response_id: string
+  last_response_id: string
+  turn_count: number
+  created_at: string
+  updated_at: string
+}
+
+export interface OpenAIConversationRetentionTurn {
+  id: number
+  session_id: number
+  user_id: number
+  api_key_id: number
+  account_id?: number | null
+  group_id?: number | null
+  request_id: string
+  response_id: string
+  turn_index: number
+  requested_model: string
+  upstream_model: string
+  reasoning_effort: string
+  stream: boolean
+  request_type: UsageRequestType | string
+  inbound_endpoint: string
+  upstream_endpoint: string
+  user_input_text: string
+  assistant_output_text: string
+  created_at: string
+}
+
+export interface OpenAIConversationRetentionView {
+  session: OpenAIConversationRetentionSession | null
+  turns: OpenAIConversationRetentionTurn[]
+}
+
+export interface OpenAIConversationRetentionListItem {
+  id: number
+  user_id: number
+  api_key_id: number
+  account_id?: number | null
+  group_id?: number | null
+  session_key: string
+  client_session_id: string
+  requested_model: string
+  upstream_model: string
+  reasoning_effort: string
+  first_request_id: string
+  last_request_id: string
+  first_response_id: string
+  last_response_id: string
+  turn_count: number
+  created_at: string
+  updated_at: string
+  user_email: string
+  api_key_name: string
+  account_name: string
+  group_name: string
+  last_turn?: OpenAIConversationRetentionTurn | null
 }
 
 export interface UsageCleanupFilters {

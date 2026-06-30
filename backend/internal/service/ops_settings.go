@@ -365,6 +365,8 @@ func defaultOpsAdvancedSettings() *OpsAdvancedSettings {
 			ErrorLogRetentionDays:      30,
 			MinuteMetricsRetentionDays: 30,
 			HourlyMetricsRetentionDays: 30,
+			OpenAIConversationRetentionEnabled: false,
+			OpenAIConversationRetentionDays:    90,
 		},
 		Aggregation: OpsAggregationSettings{
 			AggregationEnabled: false,
@@ -402,6 +404,9 @@ func normalizeOpsAdvancedSettings(cfg *OpsAdvancedSettings) {
 	if cfg.DataRetention.HourlyMetricsRetentionDays < 0 {
 		cfg.DataRetention.HourlyMetricsRetentionDays = 30
 	}
+	if cfg.DataRetention.OpenAIConversationRetentionDays < 0 {
+		cfg.DataRetention.OpenAIConversationRetentionDays = 90
+	}
 	// Normalize auto refresh interval (default 30 seconds)
 	if cfg.AutoRefreshIntervalSec <= 0 {
 		cfg.AutoRefreshIntervalSec = 30
@@ -431,6 +436,9 @@ func validateOpsAdvancedSettings(cfg *OpsAdvancedSettings) error {
 	}
 	if cfg.DataRetention.HourlyMetricsRetentionDays < 0 || cfg.DataRetention.HourlyMetricsRetentionDays > 365 {
 		return errors.New("hourly_metrics_retention_days must be between 0 and 365")
+	}
+	if cfg.DataRetention.OpenAIConversationRetentionDays < 0 || cfg.DataRetention.OpenAIConversationRetentionDays > 3650 {
+		return errors.New("openai_conversation_retention_days must be between 0 and 3650")
 	}
 	if cfg.AutoRefreshIntervalSec < 15 || cfg.AutoRefreshIntervalSec > 300 {
 		return errors.New("auto_refresh_interval_seconds must be between 15 and 300")

@@ -805,6 +805,8 @@ export interface OpsDataRetentionSettings {
   error_log_retention_days: number
   minute_metrics_retention_days: number
   hourly_metrics_retention_days: number
+  openai_conversation_retention_enabled: boolean
+  openai_conversation_retention_days: number
 }
 
 export interface OpsAggregationSettings {

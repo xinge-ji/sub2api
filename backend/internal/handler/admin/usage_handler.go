@@ -348,6 +348,120 @@ func (h *UsageHandler) Stats(c *gin.Context) {
 	response.Success(c, stats)
 }
 
+// OpenAIReasoningGuardStats handles admin OpenAI reasoning-guard stats with filters.
+// GET /api/v1/admin/usage/openai-reasoning-guard
+func (h *UsageHandler) OpenAIReasoningGuardStats(c *gin.Context) {
+	var userID, apiKeyID, accountID, groupID int64
+	if userIDStr := c.Query("user_id"); userIDStr != "" {
+		id, err := strconv.ParseInt(userIDStr, 10, 64)
+		if err != nil {
+			response.BadRequest(c, "Invalid user_id")
+			return
+		}
+		userID = id
+	}
+	if apiKeyIDStr := c.Query("api_key_id"); apiKeyIDStr != "" {
+		id, err := strconv.ParseInt(apiKeyIDStr, 10, 64)
+		if err != nil {
+			response.BadRequest(c, "Invalid api_key_id")
+			return
+		}
+		apiKeyID = id
+	}
+	if accountIDStr := c.Query("account_id"); accountIDStr != "" {
+		id, err := strconv.ParseInt(accountIDStr, 10, 64)
+		if err != nil {
+			response.BadRequest(c, "Invalid account_id")
+			return
+		}
+		accountID = id
+	}
+	if groupIDStr := c.Query("group_id"); groupIDStr != "" {
+		id, err := strconv.ParseInt(groupIDStr, 10, 64)
+		if err != nil {
+			response.BadRequest(c, "Invalid group_id")
+			return
+		}
+		groupID = id
+	}
+
+	model := strings.TrimSpace(c.Query("model"))
+	granularity := strings.TrimSpace(c.DefaultQuery("granularity", "day"))
+	if granularity != "hour" {
+		granularity = "day"
+	}
+
+	var requestType *int16
+	var stream *bool
+	if requestTypeStr := strings.TrimSpace(c.Query("request_type")); requestTypeStr != "" {
+		parsed, err := service.ParseUsageRequestType(requestTypeStr)
+		if err != nil {
+			response.BadRequest(c, err.Error())
+			return
+		}
+		value := int16(parsed)
+		requestType = &value
+	} else if streamStr := c.Query("stream"); streamStr != "" {
+		val, err := strconv.ParseBool(streamStr)
+		if err != nil {
+			response.BadRequest(c, "Invalid stream value, use true or false")
+			return
+		}
+		stream = &val
+	}
+
+	userTZ := c.Query("timezone")
+	now := timezone.NowInUserLocation(userTZ)
+	startDateStr := strings.TrimSpace(c.Query("start_date"))
+	endDateStr := strings.TrimSpace(c.Query("end_date"))
+
+	var startTime, endTime time.Time
+	if startDateStr != "" && endDateStr != "" {
+		var err error
+		startTime, err = timezone.ParseInUserLocation("2006-01-02", startDateStr, userTZ)
+		if err != nil {
+			response.BadRequest(c, "Invalid start_date format, use YYYY-MM-DD")
+			return
+		}
+		endTime, err = timezone.ParseInUserLocation("2006-01-02", endDateStr, userTZ)
+		if err != nil {
+			response.BadRequest(c, "Invalid end_date format, use YYYY-MM-DD")
+			return
+		}
+		endTime = endTime.AddDate(0, 0, 1)
+	} else {
+		startTime = now.AddDate(0, 0, -7)
+		endTime = now
+	}
+
+	stats, err := h.usageService.GetOpenAIReasoningGuardStats(c.Request.Context(), service.OpenAIReasoningGuardStatsFilter{
+		UserID:      userID,
+		APIKeyID:    apiKeyID,
+		AccountID:   accountID,
+		GroupID:     groupID,
+		Model:       model,
+		RequestType: requestType,
+		Stream:      stream,
+		StartTime:   startTime,
+		EndTime:     endTime,
+		Granularity: granularity,
+	})
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	response.Success(c, gin.H{
+		"summary":            stats.Summary,
+		"model_efforts":      stats.ModelEfforts,
+		"model_effort_trend": stats.ModelEffortTrend,
+		"runtime":            stats.Runtime,
+		"granularity":        granularity,
+		"start_date":         startTime.Format("2006-01-02"),
+		"end_date":           endTime.AddDate(0, 0, -1).Format("2006-01-02"),
+	})
+}
+
 // SearchUsers handles searching users by email keyword
 // GET /api/v1/admin/usage/search-users
 func (h *UsageHandler) SearchUsers(c *gin.Context) {
@@ -422,6 +536,137 @@ func (h *UsageHandler) SearchAPIKeys(c *gin.Context) {
 	}
 
 	response.Success(c, result)
+}
+
+// GetOpenAIConversationByRequestID returns retained OpenAI conversation turns for a usage request.
+// GET /api/v1/admin/usage/conversations/by-request/:request_id
+func (h *UsageHandler) GetOpenAIConversationByRequestID(c *gin.Context) {
+	requestID := strings.TrimSpace(c.Param("request_id"))
+	if requestID == "" {
+		response.BadRequest(c, "request_id is required")
+		return
+	}
+	view, err := h.usageService.GetOpenAIConversationByRequestID(c.Request.Context(), requestID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	if view == nil {
+		response.Success(c, gin.H{
+			"session": nil,
+			"turns":   []any{},
+		})
+		return
+	}
+	response.Success(c, view)
+}
+
+// ListOpenAIConversations returns retained OpenAI conversation sessions.
+// GET /api/v1/admin/usage/conversations
+func (h *UsageHandler) ListOpenAIConversations(c *gin.Context) {
+	page, pageSize := response.ParsePagination(c)
+
+	var userID, apiKeyID, accountID, groupID int64
+	if userIDStr := c.Query("user_id"); userIDStr != "" {
+		id, err := strconv.ParseInt(userIDStr, 10, 64)
+		if err != nil {
+			response.BadRequest(c, "Invalid user_id")
+			return
+		}
+		userID = id
+	}
+	if apiKeyIDStr := c.Query("api_key_id"); apiKeyIDStr != "" {
+		id, err := strconv.ParseInt(apiKeyIDStr, 10, 64)
+		if err != nil {
+			response.BadRequest(c, "Invalid api_key_id")
+			return
+		}
+		apiKeyID = id
+	}
+	if accountIDStr := c.Query("account_id"); accountIDStr != "" {
+		id, err := strconv.ParseInt(accountIDStr, 10, 64)
+		if err != nil {
+			response.BadRequest(c, "Invalid account_id")
+			return
+		}
+		accountID = id
+	}
+	if groupIDStr := c.Query("group_id"); groupIDStr != "" {
+		id, err := strconv.ParseInt(groupIDStr, 10, 64)
+		if err != nil {
+			response.BadRequest(c, "Invalid group_id")
+			return
+		}
+		groupID = id
+	}
+
+	model := strings.TrimSpace(c.Query("model"))
+	reasoningEffort := strings.TrimSpace(c.Query("reasoning_effort"))
+
+	var requestType *int16
+	var stream *bool
+	if requestTypeStr := strings.TrimSpace(c.Query("request_type")); requestTypeStr != "" {
+		parsed, err := service.ParseUsageRequestType(requestTypeStr)
+		if err != nil {
+			response.BadRequest(c, err.Error())
+			return
+		}
+		value := int16(parsed)
+		requestType = &value
+	} else if streamStr := strings.TrimSpace(c.Query("stream")); streamStr != "" {
+		val, err := strconv.ParseBool(streamStr)
+		if err != nil {
+			response.BadRequest(c, "Invalid stream value, use true or false")
+			return
+		}
+		stream = &val
+	}
+
+	var startTime, endTime *time.Time
+	userTZ := c.Query("timezone")
+	if startDateStr := strings.TrimSpace(c.Query("start_date")); startDateStr != "" {
+		t, err := timezone.ParseInUserLocation("2006-01-02", startDateStr, userTZ)
+		if err != nil {
+			response.BadRequest(c, "Invalid start_date format, use YYYY-MM-DD")
+			return
+		}
+		startTime = &t
+	}
+	if endDateStr := strings.TrimSpace(c.Query("end_date")); endDateStr != "" {
+		t, err := timezone.ParseInUserLocation("2006-01-02", endDateStr, userTZ)
+		if err != nil {
+			response.BadRequest(c, "Invalid end_date format, use YYYY-MM-DD")
+			return
+		}
+		t = t.AddDate(0, 0, 1)
+		endTime = &t
+	}
+
+	params := pagination.PaginationParams{
+		Page:      page,
+		PageSize:  pageSize,
+		SortBy:    c.DefaultQuery("sort_by", "updated_at"),
+		SortOrder: c.DefaultQuery("sort_order", "desc"),
+	}
+	filters := service.OpenAIConversationRetentionListFilters{
+		UserID:          userID,
+		APIKeyID:        apiKeyID,
+		AccountID:       accountID,
+		GroupID:         groupID,
+		Model:           model,
+		ReasoningEffort: reasoningEffort,
+		RequestType:     requestType,
+		Stream:          stream,
+		StartTime:       startTime,
+		EndTime:         endTime,
+	}
+
+	items, result, err := h.usageService.ListOpenAIConversations(c.Request.Context(), filters, params)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Paginated(c, items, result.Total, page, pageSize)
 }
 
 // ListCleanupTasks handles listing usage cleanup tasks

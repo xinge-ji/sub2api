@@ -1348,6 +1348,138 @@
               </div>
             </div>
           </div>
+
+          <div class="card">
+            <div
+              class="border-b border-gray-100 px-6 py-4 dark:border-dark-700"
+            >
+              <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+                {{ t("admin.settings.openaiReasoningGuard.title") }}
+              </h2>
+              <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                {{ t("admin.settings.openaiReasoningGuard.description") }}
+              </p>
+            </div>
+            <div class="space-y-5 p-6">
+              <label class="flex items-center justify-between gap-4">
+                <div>
+                  <div class="text-sm font-medium text-gray-900 dark:text-white">
+                    {{ t("admin.settings.openaiReasoningGuard.enabled") }}
+                  </div>
+                  <div class="text-xs text-gray-500 dark:text-gray-400">
+                    {{ t("admin.settings.openaiReasoningGuard.enabledHint") }}
+                  </div>
+                </div>
+                <Toggle v-model="openaiReasoningGuardForm.enabled" />
+              </label>
+
+              <div class="space-y-3">
+                <div class="flex items-center justify-between gap-3">
+                  <div>
+                    <label
+                      class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400"
+                    >
+                      {{ t("admin.settings.openaiReasoningGuard.modelRules") }}
+                    </label>
+                    <p class="text-xs text-gray-400 dark:text-gray-500">
+                      {{ t("admin.settings.openaiReasoningGuard.modelRulesHint") }}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    @click="addOpenAIReasoningGuardRuleRow"
+                    class="btn btn-secondary btn-sm inline-flex items-center gap-1"
+                  >
+                    <svg
+                      class="h-4 w-4"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                      stroke-width="2"
+                    >
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        d="M12 4v16m8-8H4"
+                      />
+                    </svg>
+                    {{ t("admin.settings.openaiReasoningGuard.addRule") }}
+                  </button>
+                </div>
+
+                <div
+                  v-for="(rule, index) in openAIReasoningGuardRuleRows"
+                  :key="`reasoning-guard-rule-${index}`"
+                  class="rounded-xl border border-gray-200 p-4 dark:border-dark-700"
+                >
+                  <div class="mb-3 flex items-start justify-between gap-3">
+                    <div class="text-xs font-medium text-gray-500 dark:text-gray-400">
+                      {{ t("admin.settings.openaiReasoningGuard.ruleItem", { index: index + 1 }) }}
+                    </div>
+                    <button
+                      type="button"
+                      @click="removeOpenAIReasoningGuardRuleRow(index)"
+                      class="rounded p-1 text-red-400 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20"
+                    >
+                      <svg
+                        class="h-4 w-4"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                        stroke-width="2"
+                      >
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          d="M6 18L18 6M6 6l12 12"
+                        />
+                      </svg>
+                    </button>
+                  </div>
+
+                  <div class="grid gap-3 md:grid-cols-2">
+                    <div>
+                      <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
+                        {{ t("admin.settings.openaiReasoningGuard.model") }}
+                      </label>
+                      <input
+                        v-model="rule.model"
+                        type="text"
+                        class="input"
+                        :placeholder="t('admin.settings.openaiReasoningGuard.modelPlaceholder')"
+                      />
+                    </div>
+                    <div>
+                      <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
+                        {{ t("admin.settings.openaiReasoningGuard.codes") }}
+                      </label>
+                      <input
+                        v-model="rule.codesDraft"
+                        type="text"
+                        class="input"
+                        :placeholder="t('admin.settings.openaiReasoningGuard.codesPlaceholder')"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label
+                  class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400"
+                >
+                  {{ t("admin.settings.openaiReasoningGuard.interceptStatusCode") }}
+                </label>
+                <input
+                  v-model.number="openaiReasoningGuardForm.intercept_status_code"
+                  type="number"
+                  min="400"
+                  max="599"
+                  class="input"
+                />
+              </div>
+            </div>
+          </div>
         </div>
         <!-- /Tab: Gateway -->
 
@@ -4428,6 +4560,79 @@
                 </p>
               </div>
 
+              <div>
+                <div class="mb-2 flex items-center justify-between gap-3">
+                  <label
+                    class="block text-sm font-medium text-gray-700 dark:text-gray-300"
+                  >
+                    {{
+                      t(
+                        "admin.settings.gatewayForwarding.openaiCodexUserAgentRules",
+                      )
+                    }}
+                  </label>
+                  <button
+                    type="button"
+                    class="btn btn-secondary btn-sm"
+                    @click="addOpenAICodexUserAgentRuleRow"
+                  >
+                    {{
+                      t(
+                        "admin.settings.gatewayForwarding.openaiCodexUserAgentRulesAdd",
+                      )
+                    }}
+                  </button>
+                </div>
+                <div class="space-y-3">
+                  <div
+                    v-for="(rule, index) in openAICodexUserAgentRuleRows"
+                    :key="`openai-codex-ua-rule-${index}`"
+                    class="rounded-xl border border-gray-200 p-3 dark:border-dark-700"
+                  >
+                    <div class="grid gap-3 lg:grid-cols-[minmax(0,240px)_minmax(0,1fr)_auto]">
+                      <input
+                        v-model="rule.keyword"
+                        type="text"
+                        class="input font-mono text-sm"
+                        :placeholder="
+                          t(
+                            'admin.settings.gatewayForwarding.openaiCodexUserAgentRulesKeywordPlaceholder',
+                          )
+                        "
+                      />
+                      <input
+                        v-model="rule.userAgent"
+                        type="text"
+                        class="input font-mono text-sm"
+                        :placeholder="
+                          t(
+                            'admin.settings.gatewayForwarding.openaiCodexUserAgentRulesUserAgentPlaceholder',
+                          )
+                        "
+                      />
+                      <button
+                        type="button"
+                        class="btn btn-secondary btn-sm"
+                        @click="removeOpenAICodexUserAgentRuleRow(index)"
+                      >
+                        {{
+                          t(
+                            "admin.settings.gatewayForwarding.openaiCodexUserAgentRulesRemove",
+                          )
+                        }}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                  {{
+                    t(
+                      "admin.settings.gatewayForwarding.openaiCodexUserAgentRulesHint",
+                    )
+                  }}
+                </p>
+              </div>
+
             </div>
           </div>
 
@@ -7206,7 +7411,10 @@ import type {
   UpdateSettingsRequest,
   DefaultSubscriptionSetting,
   DefaultPlatformQuotasMap,
+  OpenAICodexUserAgentRule,
   OpenAIFastPolicyRule,
+  OpenAIReasoningGuardModelRule,
+  OpenAIReasoningGuardSettings,
   WeChatConnectMode,
   WebSearchEmulationConfig,
   WebSearchProviderConfig,
@@ -7426,6 +7634,12 @@ const openaiFastPolicyForm = reactive({
 // 标记 openai_fast_policy_settings 是否已成功从后端加载，
 // 避免后端 GET 出错或字段缺失时，保存把默认规则覆盖成空数组。
 const openaiFastPolicyLoaded = ref(false);
+const openaiReasoningGuardLoaded = ref(false);
+const openaiReasoningGuardForm = reactive<OpenAIReasoningGuardSettings>({
+  enabled: false,
+  rules: [],
+  intercept_status_code: 502,
+});
 
 const tablePageSizeMin = 5;
 const tablePageSizeMax = 1000;
@@ -7454,6 +7668,48 @@ function defaultLoginAgreementDocuments(): LoginAgreementDocument[] {
       content_md: "",
     },
   ];
+}
+
+function formatOpenAIReasoningGuardCodes(values: number[]): string {
+  return values.join(", ");
+}
+
+function parseOpenAIReasoningGuardCodes(raw: string): number[] {
+  return String(raw)
+    .split(",")
+    .map((item) => item.trim())
+    .filter((item) => item !== "")
+    .map((item) => Number(item))
+    .filter((item) => Number.isFinite(item) && item >= 0);
+}
+
+function normalizeOpenAIReasoningGuardRuleRows(
+  rules: OpenAIReasoningGuardModelRule[] | null | undefined,
+): OpenAIReasoningGuardRuleRow[] {
+  if (!Array.isArray(rules)) return [];
+  return rules.map((rule) => ({
+    model: typeof rule?.model === "string" ? rule.model : "",
+    codesDraft: formatOpenAIReasoningGuardCodes(
+      Array.isArray(rule?.codes) ? rule.codes : [],
+    ),
+  }));
+}
+
+function serializeOpenAIReasoningGuardRuleRows(): OpenAIReasoningGuardModelRule[] {
+  return openAIReasoningGuardRuleRows.value
+    .map((rule) => ({
+      model: rule.model.trim(),
+      codes: parseOpenAIReasoningGuardCodes(rule.codesDraft),
+    }))
+    .filter((rule) => rule.model && rule.codes.length > 0);
+}
+
+function addOpenAIReasoningGuardRuleRow(): void {
+  openAIReasoningGuardRuleRows.value.push({ model: "", codesDraft: "" });
+}
+
+function removeOpenAIReasoningGuardRuleRow(index: number): void {
+  openAIReasoningGuardRuleRows.value.splice(index, 1);
 }
 
 function normalizeLoginAgreementDocumentId(raw: string): string {
@@ -8080,6 +8336,7 @@ const form = reactive<SettingsForm>({
   rewrite_message_cache_control: false,
   antigravity_user_agent_version: "",
   openai_codex_user_agent: "",
+  openai_codex_user_agent_rules: [] as OpenAICodexUserAgentRule[],
   // codex_cli_only 加固
   min_codex_version: "",
   max_codex_version: "",
@@ -8698,9 +8955,19 @@ interface CodexClientRow {
   uaContains: string; // 逗号分隔，序列化时拆成 ua_contains 数组
   skipEngineFingerprint?: boolean; // 仅白名单：命中即跳过引擎指纹门
 }
+interface OpenAICodexUserAgentRuleRow {
+  keyword: string;
+  userAgent: string;
+}
+interface OpenAIReasoningGuardRuleRow {
+  model: string;
+  codesDraft: string;
+}
 const codexBlacklistRows = ref<CodexClientRow[]>([]);
 const codexWhitelistRows = ref<CodexClientRow[]>([]);
 const codexFingerprintRows = ref<FingerprintSignalRow[]>([]);
+const openAICodexUserAgentRuleRows = ref<OpenAICodexUserAgentRuleRow[]>([]);
+const openAIReasoningGuardRuleRows = ref<OpenAIReasoningGuardRuleRow[]>([]);
 const codexFingerprintNoRequired = computed(
   () => !codexFingerprintRows.value.some((r) => r.required),
 );
@@ -8709,6 +8976,35 @@ function addCodexFingerprintRow(): void {
 }
 function removeCodexFingerprintRow(i: number): void {
   codexFingerprintRows.value.splice(i, 1);
+}
+
+function addOpenAICodexUserAgentRuleRow(): void {
+  openAICodexUserAgentRuleRows.value.push({ keyword: "", userAgent: "" });
+}
+
+function removeOpenAICodexUserAgentRuleRow(i: number): void {
+  openAICodexUserAgentRuleRows.value.splice(i, 1);
+}
+
+function normalizeOpenAICodexUserAgentRuleRows(
+  rules: OpenAICodexUserAgentRule[] | null | undefined,
+): OpenAICodexUserAgentRuleRow[] {
+  if (!Array.isArray(rules)) return [];
+  return rules
+    .map((rule) => ({
+      keyword: typeof rule?.keyword === "string" ? rule.keyword : "",
+      userAgent: typeof rule?.user_agent === "string" ? rule.user_agent : "",
+    }))
+    .filter((rule) => rule.keyword.trim() || rule.userAgent.trim());
+}
+
+function serializeOpenAICodexUserAgentRuleRows(): OpenAICodexUserAgentRule[] {
+  return openAICodexUserAgentRuleRows.value
+    .map((rule) => ({
+      keyword: rule.keyword.trim(),
+      user_agent: rule.userAgent.trim(),
+    }))
+    .filter((rule) => rule.keyword || rule.user_agent);
 }
 
 function parseCodexEntriesToRows(raw: string): CodexClientRow[] {
@@ -8795,6 +9091,9 @@ async function loadSettings() {
     );
     codexWhitelistRows.value = parseCodexEntriesToRows(
       form.codex_cli_only_whitelist,
+    );
+    openAICodexUserAgentRuleRows.value = normalizeOpenAICodexUserAgentRuleRows(
+      settings.openai_codex_user_agent_rules,
     );
     codexFingerprintRows.value = form.codex_cli_only_engine_fingerprint_signals
       ? parseFingerprintSignalsToRows(form.codex_cli_only_engine_fingerprint_signals)
@@ -8907,6 +9206,24 @@ async function loadSettings() {
             : [],
         }));
       openaiFastPolicyLoaded.value = true;
+    }
+    if (settings.openai_reasoning_guard_settings) {
+      openaiReasoningGuardForm.enabled =
+        settings.openai_reasoning_guard_settings.enabled ?? false;
+      openaiReasoningGuardForm.rules = Array.isArray(
+        settings.openai_reasoning_guard_settings.rules,
+      )
+        ? settings.openai_reasoning_guard_settings.rules.map((rule) => ({
+            model: rule.model,
+            codes: Array.isArray(rule.codes) ? [...rule.codes] : [],
+          }))
+        : [];
+      openAIReasoningGuardRuleRows.value = normalizeOpenAIReasoningGuardRuleRows(
+        settings.openai_reasoning_guard_settings.rules,
+      );
+      openaiReasoningGuardForm.intercept_status_code =
+        settings.openai_reasoning_guard_settings.intercept_status_code ?? 502;
+      openaiReasoningGuardLoaded.value = true;
     }
 
     // Load web search emulation config separately
@@ -9300,6 +9617,7 @@ async function saveSettings() {
         form.antigravity_user_agent_version?.trim() || "",
       openai_codex_user_agent:
         form.openai_codex_user_agent?.trim() || "",
+      openai_codex_user_agent_rules: serializeOpenAICodexUserAgentRuleRows(),
       min_codex_version: form.min_codex_version?.trim() || "",
       max_codex_version: form.max_codex_version?.trim() || "",
       codex_cli_only_allow_app_server_clients:
@@ -9395,6 +9713,15 @@ async function saveSettings() {
         }),
       };
     }
+    if (openaiReasoningGuardLoaded.value) {
+      const serializedRules = serializeOpenAIReasoningGuardRuleRows();
+      payload.openai_reasoning_guard_settings = {
+        enabled: openaiReasoningGuardForm.enabled,
+        rules: serializedRules,
+        intercept_status_code:
+          Number(openaiReasoningGuardForm.intercept_status_code) || 502,
+      };
+    }
 
     payload.default_platform_quotas = sanitizePlatformQuotasMap(form.default_platform_quotas);
     appendAuthSourceDefaultsToUpdateRequest(payload, authSourceDefaults);
@@ -9449,6 +9776,9 @@ async function saveSettings() {
       form.wechat_connect_mode,
     );
     form.oidc_connect_client_secret = "";
+    openAICodexUserAgentRuleRows.value = normalizeOpenAICodexUserAgentRuleRows(
+      updated.openai_codex_user_agent_rules,
+    );
     // Refresh OpenAI fast/flex policy from server response
     if (
       updated.openai_fast_policy_settings &&
@@ -9462,6 +9792,24 @@ async function saveSettings() {
             : [],
         }));
       openaiFastPolicyLoaded.value = true;
+    }
+    if (updated.openai_reasoning_guard_settings) {
+      openaiReasoningGuardForm.enabled =
+        updated.openai_reasoning_guard_settings.enabled ?? false;
+      openaiReasoningGuardForm.rules = Array.isArray(
+        updated.openai_reasoning_guard_settings.rules,
+      )
+        ? updated.openai_reasoning_guard_settings.rules.map((rule) => ({
+            model: rule.model,
+            codes: Array.isArray(rule.codes) ? [...rule.codes] : [],
+          }))
+        : [];
+      openAIReasoningGuardRuleRows.value = normalizeOpenAIReasoningGuardRuleRows(
+        updated.openai_reasoning_guard_settings.rules,
+      );
+      openaiReasoningGuardForm.intercept_status_code =
+        updated.openai_reasoning_guard_settings.intercept_status_code ?? 502;
+      openaiReasoningGuardLoaded.value = true;
     }
     // Save web search emulation config separately (errors handled internally)
     const wsOk = await saveWebSearchConfig();

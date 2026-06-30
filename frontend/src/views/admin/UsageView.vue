@@ -63,6 +63,12 @@
           />
           <TokenUsageTrend :trend-data="trendData" :loading="chartsLoading" />
         </div>
+        <OpenAIReasoningGuardModelEffortCard
+          :rows="openaiReasoningGuardStats?.model_efforts || []"
+          :trend="openaiReasoningGuardStats?.model_effort_trend || []"
+          :runtime="openaiReasoningGuardStats?.runtime || null"
+          :loading="openaiReasoningGuardLoading"
+        />
       </div>
       <UsageFilters v-model="filters" :start-date="startDate" :end-date="endDate" :exporting="exporting" :model-options="modelNameOptions" @change="applyFilters" @refresh="refreshData" @reset="resetFilters" @cleanup="openCleanupDialog" @export="exportToExcel">
         <template #after-reset>
@@ -104,6 +110,9 @@
         <button class="tab" :class="{ 'tab-active': activeTab === 'usage' }" @click="activeTab = 'usage'">
           {{ t('usage.tabs.usage') }}
         </button>
+        <button class="tab" :class="{ 'tab-active': activeTab === 'conversations' }" @click="switchToConversationsTab">
+          {{ t('usage.tabs.conversations') }}
+        </button>
         <button class="tab" :class="{ 'tab-active': activeTab === 'errors' }" @click="switchToErrorsTab">
           {{ t('usage.tabs.errors') }}
         </button>
@@ -118,6 +127,7 @@
           :default-sort-order="'desc'"
           @sort="handleSort"
           @userClick="handleUserClick"
+          @conversationClick="openConversation"
         />
         <Pagination v-if="pagination.total > 0" :page="pagination.page" :total="pagination.total" :page-size="pagination.page_size" @update:page="handlePageChange" @update:pageSize="handlePageSizeChange" />
       </div>
@@ -129,6 +139,73 @@
           @update:page="onErrPage"
           @update:pageSize="onErrPageSize" />
         <OpsErrorDetailModal v-model:show="showErrorModal" :error-id="selectedErrorId" :error-type="'request'" />
+      </div>
+      <div v-show="activeTab === 'conversations'" class="card overflow-hidden">
+        <div class="overflow-auto">
+          <table class="w-full min-w-[1200px] divide-y divide-gray-200 dark:divide-dark-700">
+            <thead class="bg-gray-50 dark:bg-dark-800">
+              <tr>
+                <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-dark-400">{{ t('usage.time') }}</th>
+                <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-dark-400">{{ t('admin.usage.user') }}</th>
+                <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-dark-400">{{ t('usage.apiKeyFilter') }}</th>
+                <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-dark-400">{{ t('admin.usage.account') }}</th>
+                <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-dark-400">{{ t('admin.usage.group') }}</th>
+                <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-dark-400">{{ t('usage.model') }}</th>
+                <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-dark-400">{{ t('usage.reasoningEffort') }}</th>
+                <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-dark-400">{{ t('admin.usage.turnCount') }}</th>
+                <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-dark-400">{{ t('admin.usage.sessionId') }}</th>
+                <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-dark-400">{{ t('admin.usage.lastTurnPreview') }}</th>
+                <th class="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-dark-400">{{ t('admin.ops.errorLog.action') }}</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-200 bg-white dark:divide-dark-700 dark:bg-dark-900">
+              <tr v-if="conversationListLoading">
+                <td colspan="11" class="px-4 py-12 text-center text-sm text-gray-500 dark:text-gray-400">{{ t('common.loading') }}</td>
+              </tr>
+              <tr v-else-if="conversationRows.length === 0">
+                <td colspan="11" class="px-4 py-12 text-center text-sm text-gray-500 dark:text-gray-400">{{ t('admin.usage.conversationListEmpty') }}</td>
+              </tr>
+              <tr v-for="row in conversationRows" :key="row.id" class="hover:bg-gray-50 dark:hover:bg-dark-800/50">
+                <td class="whitespace-nowrap px-4 py-3 text-sm text-gray-700 dark:text-gray-300">{{ formatDateTime(row.updated_at) }}</td>
+                <td class="px-4 py-3 text-sm text-gray-900 dark:text-white">{{ row.user_email || '-' }}<span class="ml-1 text-gray-500">#{{ row.user_id }}</span></td>
+                <td class="px-4 py-3 text-sm text-gray-900 dark:text-white">{{ row.api_key_name || '-' }}</td>
+                <td class="px-4 py-3 text-sm text-gray-900 dark:text-white">{{ row.account_name || '-' }}</td>
+                <td class="px-4 py-3 text-sm text-gray-900 dark:text-white">{{ row.group_name || '-' }}</td>
+                <td class="px-4 py-3 text-sm text-gray-900 dark:text-white">
+                  <div class="font-medium">{{ row.requested_model || '-' }}</div>
+                  <div v-if="row.upstream_model && row.upstream_model !== row.requested_model" class="text-xs text-gray-500 dark:text-gray-400">↳ {{ row.upstream_model }}</div>
+                </td>
+                <td class="px-4 py-3 text-sm text-gray-700 dark:text-gray-300">{{ formatReasoningEffort(row.reasoning_effort) }}</td>
+                <td class="px-4 py-3 text-sm text-gray-700 dark:text-gray-300">{{ row.turn_count }}</td>
+                <td class="max-w-[220px] px-4 py-3 text-xs font-mono text-gray-700 dark:text-gray-300">
+                  <div class="truncate" :title="row.client_session_id || row.session_key">{{ row.client_session_id || row.session_key }}</div>
+                </td>
+                <td class="max-w-[320px] px-4 py-3">
+                  <div class="line-clamp-2 whitespace-pre-wrap break-words text-sm text-gray-700 dark:text-gray-300">
+                    {{ row.last_turn?.user_input_text || row.last_turn?.assistant_output_text || '-' }}
+                  </div>
+                </td>
+                <td class="whitespace-nowrap px-4 py-3 text-right">
+                  <button
+                    type="button"
+                    class="inline-flex items-center rounded-md border border-gray-200 px-2 py-1 text-xs font-medium text-gray-700 transition-colors hover:border-primary-300 hover:text-primary-600 dark:border-dark-600 dark:text-gray-300 dark:hover:border-primary-500/40 dark:hover:text-primary-400"
+                    @click="openConversationByRequestId(row.last_request_id)"
+                  >
+                    {{ t('admin.ops.errorLog.details') }}
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <Pagination
+          v-if="conversationPagination.total > 0"
+          :page="conversationPagination.page"
+          :total="conversationPagination.total"
+          :page-size="conversationPagination.page_size"
+          @update:page="handleConversationPageChange"
+          @update:pageSize="handleConversationPageSizeChange"
+        />
       </div>
     </div>
   </AppLayout>
@@ -147,6 +224,73 @@
     :hide-actions="true"
     @close="showBalanceHistoryModal = false; balanceHistoryUser = null"
   />
+  <BaseDialog
+    :show="showConversationModal"
+    :title="t('admin.usage.conversationTitle')"
+    width="extra-wide"
+    @close="closeConversationModal"
+  >
+    <div class="space-y-4">
+      <div v-if="conversationLoading" class="py-10 text-center text-sm text-gray-500">
+        {{ t('common.loading') }}
+      </div>
+      <div v-else-if="conversationError" class="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-900/40 dark:bg-rose-900/20 dark:text-rose-200">
+        {{ conversationError }}
+      </div>
+      <div v-else-if="conversationView?.session" class="space-y-4">
+        <div class="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <div class="rounded-xl bg-gray-50 p-3 dark:bg-dark-700/50">
+            <div class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.usage.sessionId') }}</div>
+            <div class="mt-1 break-all font-mono text-xs text-gray-900 dark:text-white">{{ conversationView.session.client_session_id || conversationView.session.session_key }}</div>
+          </div>
+          <div class="rounded-xl bg-gray-50 p-3 dark:bg-dark-700/50">
+            <div class="text-xs text-gray-500 dark:text-gray-400">{{ t('usage.model') }}</div>
+            <div class="mt-1 text-sm font-medium text-gray-900 dark:text-white">{{ conversationView.session.requested_model || '-' }}</div>
+            <div v-if="conversationView.session.upstream_model && conversationView.session.upstream_model !== conversationView.session.requested_model" class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              ↳ {{ conversationView.session.upstream_model }}
+            </div>
+          </div>
+          <div class="rounded-xl bg-gray-50 p-3 dark:bg-dark-700/50">
+            <div class="text-xs text-gray-500 dark:text-gray-400">{{ t('usage.reasoningEffort') }}</div>
+            <div class="mt-1 text-sm font-medium text-gray-900 dark:text-white">{{ formatReasoningEffort(conversationView.session.reasoning_effort) }}</div>
+          </div>
+          <div class="rounded-xl bg-gray-50 p-3 dark:bg-dark-700/50">
+            <div class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.usage.turnCount') }}</div>
+            <div class="mt-1 text-sm font-medium text-gray-900 dark:text-white">{{ conversationView.session.turn_count }}</div>
+          </div>
+        </div>
+
+        <div class="space-y-3">
+          <div
+            v-for="turn in conversationView.turns"
+            :key="turn.id"
+            class="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm dark:border-dark-600 dark:bg-dark-800/70"
+          >
+            <div class="mb-3 flex flex-wrap items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+              <span class="inline-flex items-center rounded-full bg-primary-50 px-2 py-0.5 font-medium text-primary-700 dark:bg-primary-500/15 dark:text-primary-300">
+                {{ t('admin.usage.turnLabel', { index: turn.turn_index }) }}
+              </span>
+              <span>{{ formatDateTime(turn.created_at) }}</span>
+              <span class="font-mono">{{ turn.request_id }}</span>
+            </div>
+            <div class="space-y-3">
+              <div class="rounded-xl bg-sky-50/80 p-3 dark:bg-sky-500/10">
+                <div class="mb-1 text-xs font-semibold uppercase tracking-wide text-sky-700 dark:text-sky-300">{{ t('admin.usage.userInput') }}</div>
+                <div class="whitespace-pre-wrap break-words text-sm text-gray-800 dark:text-gray-100">{{ turn.user_input_text || '-' }}</div>
+              </div>
+              <div class="rounded-xl bg-emerald-50/80 p-3 dark:bg-emerald-500/10">
+                <div class="mb-1 text-xs font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">{{ t('admin.usage.assistantOutput') }}</div>
+                <div class="whitespace-pre-wrap break-words text-sm text-gray-800 dark:text-gray-100">{{ turn.assistant_output_text || '-' }}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div v-else class="py-10 text-center text-sm text-gray-500">
+        {{ t('admin.usage.conversationEmpty') }}
+      </div>
+    </div>
+  </BaseDialog>
 </template>
 
 <script setup lang="ts">
@@ -156,9 +300,9 @@ import { saveAs } from 'file-saver'
 import { useRoute } from 'vue-router'
 import { useAppStore } from '@/stores/app'; import { adminAPI } from '@/api/admin'; import { adminUsageAPI } from '@/api/admin/usage'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
-import { formatReasoningEffort } from '@/utils/format'
+import { formatDateTime, formatReasoningEffort } from '@/utils/format'
 import { resolveUsageRequestType, requestTypeToLegacyStream } from '@/utils/usageRequestType'
-import AppLayout from '@/components/layout/AppLayout.vue'; import Pagination from '@/components/common/Pagination.vue'; import Select from '@/components/common/Select.vue'; import DateRangePicker from '@/components/common/DateRangePicker.vue'
+import AppLayout from '@/components/layout/AppLayout.vue'; import Pagination from '@/components/common/Pagination.vue'; import Select from '@/components/common/Select.vue'; import DateRangePicker from '@/components/common/DateRangePicker.vue'; import BaseDialog from '@/components/common/BaseDialog.vue'
 import UsageStatsCards from '@/components/admin/usage/UsageStatsCards.vue'; import UsageFilters from '@/components/admin/usage/UsageFilters.vue'
 import UsageTable from '@/components/admin/usage/UsageTable.vue'; import UsageExportProgress from '@/components/admin/usage/UsageExportProgress.vue'
 import UsageCleanupDialog from '@/components/admin/usage/UsageCleanupDialog.vue'
@@ -170,7 +314,9 @@ import type { OpsErrorLog } from '@/api/admin/ops'
 import ModelDistributionChart from '@/components/charts/ModelDistributionChart.vue'; import GroupDistributionChart from '@/components/charts/GroupDistributionChart.vue'; import TokenUsageTrend from '@/components/charts/TokenUsageTrend.vue'
 import EndpointDistributionChart from '@/components/charts/EndpointDistributionChart.vue'
 import Icon from '@/components/icons/Icon.vue'
-import type { AdminUsageLog, TrendDataPoint, ModelStat, GroupStat, EndpointStat, AdminUser } from '@/types'; import type { AdminUsageStatsResponse, AdminUsageQueryParams } from '@/api/admin/usage'
+import OpenAIReasoningGuardModelEffortCard from '@/components/admin/usage/OpenAIReasoningGuardModelEffortCard.vue'
+import type { AdminUsageLog, TrendDataPoint, ModelStat, GroupStat, EndpointStat, AdminUser, OpenAIConversationRetentionView, OpenAIConversationRetentionListItem } from '@/types'; import type { AdminUsageStatsResponse, AdminUsageQueryParams } from '@/api/admin/usage'
+import type { AdminOpenAIReasoningGuardStatsResponse } from '@/api/admin/usage'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -194,15 +340,25 @@ const inboundEndpointStats = ref<EndpointStat[]>([])
 const upstreamEndpointStats = ref<EndpointStat[]>([])
 const endpointPathStats = ref<EndpointStat[]>([])
 const endpointStatsLoading = ref(false)
+const openaiReasoningGuardStats = ref<AdminOpenAIReasoningGuardStatsResponse | null>(null)
+const openaiReasoningGuardLoading = ref(false)
 let abortController: AbortController | null = null; let exportAbortController: AbortController | null = null
 let chartReqSeq = 0
 let statsReqSeq = 0
 let modelStatsReqSeq = 0
+let openaiReasoningGuardReqSeq = 0
 const exportProgress = reactive({ show: false, progress: 0, current: 0, total: 0, estimatedTime: '' })
 const cleanupDialogVisible = ref(false)
 // Balance history modal state
 const showBalanceHistoryModal = ref(false)
 const balanceHistoryUser = ref<AdminUser | null>(null)
+const showConversationModal = ref(false)
+const conversationLoading = ref(false)
+const conversationError = ref('')
+const conversationView = ref<OpenAIConversationRetentionView | null>(null)
+const conversationRows = ref<OpenAIConversationRetentionListItem[]>([])
+const conversationListLoading = ref(false)
+const conversationPagination = reactive({ page: 1, page_size: getPersistedPageSize(), total: 0 })
 
 const breakdownFilters = computed(() => {
   const f: Record<string, any> = {}
@@ -227,6 +383,34 @@ const handleUserClick = async (userId: number) => {
   } catch {
     appStore.showError(t('admin.usage.failedToLoadUser'))
   }
+}
+
+const openConversation = async (row: AdminUsageLog) => {
+  if (!row.request_id) return
+  await openConversationByRequestId(row.request_id)
+}
+
+const openConversationByRequestId = async (requestId: string) => {
+  if (!requestId) return
+  showConversationModal.value = true
+  conversationLoading.value = true
+  conversationError.value = ''
+  conversationView.value = null
+  try {
+    conversationView.value = await adminUsageAPI.getConversationByRequestId(requestId)
+  } catch (error) {
+    console.error('Failed to load conversation:', error)
+    conversationError.value = t('admin.usage.failedToLoadConversation')
+  } finally {
+    conversationLoading.value = false
+  }
+}
+
+const closeConversationModal = () => {
+  showConversationModal.value = false
+  conversationLoading.value = false
+  conversationError.value = ''
+  conversationView.value = null
 }
 
 const granularityOptions = computed(() => [{ value: 'day', label: t('admin.dashboard.day') }, { value: 'hour', label: t('admin.dashboard.hour') }])
@@ -448,6 +632,37 @@ const loadChartData = async () => {
     groupStats.value = snapshot.groups || []
   } catch (error) { console.error('Failed to load chart data:', error) } finally { if (seq === chartReqSeq) chartsLoading.value = false }
 }
+
+const loadOpenAIReasoningGuardStats = async () => {
+  const seq = ++openaiReasoningGuardReqSeq
+  openaiReasoningGuardLoading.value = true
+  try {
+    const requestType = filters.value.request_type
+    const legacyStream = requestType ? requestTypeToLegacyStream(requestType) : filters.value.stream
+    const response = await adminUsageAPI.getOpenAIReasoningGuardStats({
+      start_date: filters.value.start_date || startDate.value,
+      end_date: filters.value.end_date || endDate.value,
+      granularity: granularity.value,
+      user_id: filters.value.user_id,
+      model: filters.value.model,
+      api_key_id: filters.value.api_key_id,
+      account_id: filters.value.account_id,
+      group_id: filters.value.group_id,
+      request_type: requestType,
+      stream: legacyStream === null ? undefined : legacyStream,
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    })
+    if (seq !== openaiReasoningGuardReqSeq) return
+    openaiReasoningGuardStats.value = response
+  } catch (error) {
+    if (seq !== openaiReasoningGuardReqSeq) return
+    console.error('Failed to load OpenAI reasoning guard stats:', error)
+    openaiReasoningGuardStats.value = null
+  } finally {
+    if (seq === openaiReasoningGuardReqSeq) openaiReasoningGuardLoading.value = false
+  }
+}
+
 const applyFilters = () => {
   pagination.page = 1
   invalidateModelStatsCache()
@@ -455,9 +670,13 @@ const applyFilters = () => {
   loadStats()
   loadModelStats(modelDistributionSource.value, true)
   loadChartData()
+  loadOpenAIReasoningGuardStats()
   errPage.value = 1
+  conversationPagination.page = 1
   if (activeTab.value === 'errors') {
     loadAdminErrors()
+  } else if (activeTab.value === 'conversations') {
+    loadConversationList()
   } else {
     errRows.value = []
   }
@@ -468,7 +687,9 @@ const refreshData = () => {
   loadStats(true)
   loadModelStats(modelDistributionSource.value, true)
   loadChartData()
+  loadOpenAIReasoningGuardStats()
   if (activeTab.value === 'errors') loadAdminErrors()
+  if (activeTab.value === 'conversations') loadConversationList()
 }
 const resetFilters = () => {
   const range = getLast24HoursRangeDates()
@@ -624,7 +845,7 @@ const loadSavedColumns = () => {
 }
 
 // Error tab state
-const activeTab = ref<'usage' | 'errors'>('usage')
+const activeTab = ref<'usage' | 'conversations' | 'errors'>('usage')
 const errRows = ref<OpsErrorLog[]>([])
 const errLoading = ref(false)
 const errPage = ref(1)
@@ -666,6 +887,53 @@ const onErrPage = (p: number) => { errPage.value = p; loadAdminErrors() }
 const onErrPageSize = (s: number) => { errPageSize.value = s; errPage.value = 1; loadAdminErrors() }
 const openError = (id: number) => { selectedErrorId.value = id; showErrorModal.value = true }
 const switchToErrorsTab = () => { activeTab.value = 'errors'; if (errRows.value.length === 0) loadAdminErrors() }
+const switchToConversationsTab = () => {
+  activeTab.value = 'conversations'
+  if (conversationRows.value.length === 0) loadConversationList()
+}
+
+const loadConversationList = async () => {
+  conversationListLoading.value = true
+  try {
+    const requestType = filters.value.request_type
+    const legacyStream = requestType ? requestTypeToLegacyStream(requestType) : filters.value.stream
+    const resp = await adminUsageAPI.listConversations({
+      page: conversationPagination.page,
+      page_size: conversationPagination.page_size,
+      user_id: filters.value.user_id,
+      api_key_id: filters.value.api_key_id,
+      account_id: filters.value.account_id,
+      group_id: filters.value.group_id,
+      model: filters.value.model,
+      reasoning_effort: undefined,
+      request_type: requestType,
+      stream: legacyStream === null ? undefined : legacyStream,
+      start_date: filters.value.start_date,
+      end_date: filters.value.end_date,
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      sort_by: 'updated_at',
+      sort_order: 'desc'
+    })
+    conversationRows.value = resp.items
+    conversationPagination.total = resp.total
+  } catch (error) {
+    console.error('Failed to load conversation sessions:', error)
+    appStore.showError(t('admin.usage.failedToLoadConversationList'))
+  } finally {
+    conversationListLoading.value = false
+  }
+}
+
+const handleConversationPageChange = (page: number) => {
+  conversationPagination.page = page
+  loadConversationList()
+}
+
+const handleConversationPageSizeChange = (pageSize: number) => {
+  conversationPagination.page_size = pageSize
+  conversationPagination.page = 1
+  loadConversationList()
+}
 
 const showColumnDropdown = ref(false)
 const columnDropdownRef = ref<HTMLElement | null>(null)
@@ -681,6 +949,7 @@ onMounted(() => {
   loadLogs()
   loadStats()
   loadModelStats(modelDistributionSource.value, true)
+  loadOpenAIReasoningGuardStats()
   window.setTimeout(() => {
     void loadChartData()
   }, 120)

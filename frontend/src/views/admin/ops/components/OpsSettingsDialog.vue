@@ -161,7 +161,12 @@ const validation = computed(() => {
 
   // 验证高级设置
   if (advancedSettings.value) {
-    const { error_log_retention_days, minute_metrics_retention_days, hourly_metrics_retention_days } = advancedSettings.value.data_retention
+    const {
+      error_log_retention_days,
+      minute_metrics_retention_days,
+      hourly_metrics_retention_days,
+      openai_conversation_retention_days,
+    } = advancedSettings.value.data_retention
     if (error_log_retention_days < 0 || error_log_retention_days > 365) {
       errors.push(t('admin.ops.settings.validation.retentionDaysRange'))
     }
@@ -170,6 +175,9 @@ const validation = computed(() => {
     }
     if (hourly_metrics_retention_days < 0 || hourly_metrics_retention_days > 365) {
       errors.push(t('admin.ops.settings.validation.retentionDaysRange'))
+    }
+    if (openai_conversation_retention_days < 0 || openai_conversation_retention_days > 3650) {
+      errors.push(t('admin.ops.settings.validation.openaiConversationRetentionRange'))
     }
 
     const { default_threshold_5h, default_threshold_7d } = advancedSettings.value.openai_account_quota_auto_pause
@@ -489,6 +497,26 @@ async function saveAllSettings() {
               </div>
             </div>
             <p class="text-xs text-gray-500">{{ t('admin.ops.settings.retentionDaysHint') }}</p>
+
+            <div class="rounded-xl border border-gray-200 bg-white/80 p-4 dark:border-dark-600 dark:bg-dark-800/40">
+              <div class="flex items-center justify-between">
+                <div>
+                  <label class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('admin.ops.settings.openaiConversationRetentionEnabled') }}</label>
+                  <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.ops.settings.openaiConversationRetentionHint') }}</p>
+                </div>
+                <Toggle v-model="advancedSettings.data_retention.openai_conversation_retention_enabled" />
+              </div>
+              <div v-if="advancedSettings.data_retention.openai_conversation_retention_enabled" class="mt-4 max-w-xs">
+                <label class="input-label">{{ t('admin.ops.settings.openaiConversationRetentionDays') }}</label>
+                <input
+                  v-model.number="advancedSettings.data_retention.openai_conversation_retention_days"
+                  type="number"
+                  min="0"
+                  max="3650"
+                  class="input"
+                />
+              </div>
+            </div>
           </div>
 
           <!-- 预聚合任务 -->

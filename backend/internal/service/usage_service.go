@@ -60,6 +60,9 @@ type UsageService struct {
 	userRepo             UserRepository
 	entClient            *dbent.Client
 	authCacheInvalidator APIKeyAuthCacheInvalidator
+	reasoningGuardRepo   OpenAIReasoningGuardRepository
+	settingService       *SettingService
+	conversationRetentionRepo OpenAIConversationRetentionRepository
 }
 
 // NewUsageService 创建使用统计服务实例
@@ -70,6 +73,27 @@ func NewUsageService(usageRepo UsageLogRepository, userRepo UserRepository, entC
 		entClient:            entClient,
 		authCacheInvalidator: authCacheInvalidator,
 	}
+}
+
+func (s *UsageService) SetOpenAIReasoningGuardRepository(repo OpenAIReasoningGuardRepository) {
+	if s == nil {
+		return
+	}
+	s.reasoningGuardRepo = repo
+}
+
+func (s *UsageService) SetSettingService(settingService *SettingService) {
+	if s == nil {
+		return
+	}
+	s.settingService = settingService
+}
+
+func (s *UsageService) SetOpenAIConversationRetentionRepository(repo OpenAIConversationRetentionRepository) {
+	if s == nil {
+		return
+	}
+	s.conversationRetentionRepo = repo
 }
 
 // Create 创建使用日志
@@ -392,4 +416,85 @@ func (s *UsageService) GetStatsWithFilters(ctx context.Context, filters usagesta
 		return nil, fmt.Errorf("get usage stats with filters: %w", err)
 	}
 	return stats, nil
+}
+
+func (s *UsageService) GetOpenAIReasoningGuardUserStats(ctx context.Context, filter OpenAIReasoningGuardStatsFilter) (*OpenAIReasoningGuardUserStats, error) {
+	stats := &OpenAIReasoningGuardUserStats{}
+	if s.reasoningGuardRepo != nil {
+		repoStats, err := s.reasoningGuardRepo.GetUserStats(ctx, filter)
+		if err != nil {
+			return nil, fmt.Errorf("get openai reasoning guard user stats: %w", err)
+		}
+		if repoStats != nil {
+			stats = repoStats
+		}
+	}
+	if s.settingService != nil {
+		settings, err := s.settingService.GetOpenAIReasoningGuardSettings(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("get openai reasoning guard settings: %w", err)
+		}
+		if settings != nil {
+			stats.Runtime = OpenAIReasoningGuardRuntimeView{
+				Enabled:             settings.Enabled,
+				InterceptStatusCode: settings.InterceptStatusCode,
+				Rules:               append([]OpenAIReasoningGuardModelRule(nil), settings.Rules...),
+			}
+		}
+	}
+	return stats, nil
+}
+
+func (s *UsageService) GetOpenAIReasoningGuardStats(ctx context.Context, filter OpenAIReasoningGuardStatsFilter) (*OpenAIReasoningGuardUserStats, error) {
+	stats := &OpenAIReasoningGuardUserStats{}
+	if s.reasoningGuardRepo != nil {
+		repoStats, err := s.reasoningGuardRepo.GetStats(ctx, filter)
+		if err != nil {
+			return nil, fmt.Errorf("get openai reasoning guard stats: %w", err)
+		}
+		if repoStats != nil {
+			stats = repoStats
+		}
+	}
+	if s.settingService != nil {
+		settings, err := s.settingService.GetOpenAIReasoningGuardSettings(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("get openai reasoning guard settings: %w", err)
+		}
+		if settings != nil {
+			stats.Runtime = OpenAIReasoningGuardRuntimeView{
+				Enabled:             settings.Enabled,
+				InterceptStatusCode: settings.InterceptStatusCode,
+				Rules:               append([]OpenAIReasoningGuardModelRule(nil), settings.Rules...),
+			}
+		}
+	}
+	return stats, nil
+}
+
+func (s *UsageService) GetOpenAIConversationByRequestID(ctx context.Context, requestID string) (*OpenAIConversationRetentionView, error) {
+	if s == nil || s.conversationRetentionRepo == nil {
+		return nil, nil
+	}
+	view, err := s.conversationRetentionRepo.GetConversationByRequestID(ctx, requestID)
+	if err != nil {
+		return nil, fmt.Errorf("get openai conversation by request id: %w", err)
+	}
+	return view, nil
+}
+
+func (s *UsageService) ListOpenAIConversations(ctx context.Context, filters OpenAIConversationRetentionListFilters, params pagination.PaginationParams) ([]*OpenAIConversationRetentionListItem, *pagination.PaginationResult, error) {
+	if s == nil || s.conversationRetentionRepo == nil {
+		return []*OpenAIConversationRetentionListItem{}, &pagination.PaginationResult{
+			Total:    0,
+			Page:     params.Page,
+			PageSize: params.Limit(),
+			Pages:    1,
+		}, nil
+	}
+	items, result, err := s.conversationRetentionRepo.ListConversations(ctx, filters, params)
+	if err != nil {
+		return nil, nil, fmt.Errorf("list openai conversations: %w", err)
+	}
+	return items, result, nil
 }

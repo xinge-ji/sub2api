@@ -141,6 +141,11 @@ type cachedOpenAICodexUserAgent struct {
 	expiresAt int64 // unix nano
 }
 
+type cachedOpenAICodexUserAgentRules struct {
+	value     []OpenAICodexUserAgentRule
+	expiresAt int64 // unix nano
+}
+
 type cachedOpenAIQuotaAutoPauseSettings struct {
 	settings  OpsOpenAIAccountQuotaAutoPauseSettings
 	expiresAt int64
@@ -200,6 +205,8 @@ type SettingService struct {
 	antigravityUAVersionSF      singleflight.Group
 	openAICodexUACache          atomic.Value // *cachedOpenAICodexUserAgent
 	openAICodexUASF             singleflight.Group
+	openAICodexUARulesCache     atomic.Value // *cachedOpenAICodexUserAgentRules
+	openAICodexUARulesSF        singleflight.Group
 	codexRestrictionPolicyCache atomic.Value // *cachedCodexRestrictionPolicy
 	codexRestrictionPolicySF    singleflight.Group
 
@@ -1134,6 +1141,49 @@ func (s *SettingService) GetOpenAICodexUserAgent(ctx context.Context) string {
 		return ua
 	}
 	return fallback
+}
+
+func (s *SettingService) GetOpenAICodexUserAgentRules(ctx context.Context) []OpenAICodexUserAgentRule {
+	if s == nil || s.settingRepo == nil {
+		return nil
+	}
+	if cached, ok := s.openAICodexUARulesCache.Load().(*cachedOpenAICodexUserAgentRules); ok && cached != nil {
+		if time.Now().UnixNano() < cached.expiresAt {
+			return append([]OpenAICodexUserAgentRule(nil), cached.value...)
+		}
+	}
+
+	result, _, _ := s.openAICodexUARulesSF.Do("openai_codex_user_agent_rules", func() (any, error) {
+		if cached, ok := s.openAICodexUARulesCache.Load().(*cachedOpenAICodexUserAgentRules); ok && cached != nil {
+			if time.Now().UnixNano() < cached.expiresAt {
+				return append([]OpenAICodexUserAgentRule(nil), cached.value...), nil
+			}
+		}
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		dbCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), openAICodexUserAgentDBTimeout)
+		defer cancel()
+		value, err := s.settingRepo.GetValue(dbCtx, SettingKeyOpenAICodexUserAgentRules)
+		if err != nil && !errors.Is(err, ErrSettingNotFound) {
+			slog.Warn("failed to get openai codex user agent rules setting", "error", err)
+			s.openAICodexUARulesCache.Store(&cachedOpenAICodexUserAgentRules{
+				value:     nil,
+				expiresAt: time.Now().Add(openAICodexUserAgentErrorTTL).UnixNano(),
+			})
+			return []OpenAICodexUserAgentRule(nil), nil
+		}
+		rules := normalizeOpenAICodexUserAgentRules(parseOpenAICodexUserAgentRules(value))
+		s.openAICodexUARulesCache.Store(&cachedOpenAICodexUserAgentRules{
+			value:     append([]OpenAICodexUserAgentRule(nil), rules...),
+			expiresAt: time.Now().Add(openAICodexUserAgentCacheTTL).UnixNano(),
+		})
+		return append([]OpenAICodexUserAgentRule(nil), rules...), nil
+	})
+	if rules, ok := result.([]OpenAICodexUserAgentRule); ok {
+		return append([]OpenAICodexUserAgentRule(nil), rules...)
+	}
+	return nil
 }
 
 var legacyClaudeCodeCodexWhitelistEntry = openai.AllowedClientEntry{
@@ -2209,6 +2259,7 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeyRewriteMessageCacheControl] = strconv.FormatBool(settings.RewriteMessageCacheControl)
 	updates[SettingKeyAntigravityUserAgentVersion] = antigravity.NormalizeUserAgentVersion(settings.AntigravityUserAgentVersion)
 	updates[SettingKeyOpenAICodexUserAgent] = strings.TrimSpace(settings.OpenAICodexUserAgent)
+	updates[SettingKeyOpenAICodexUserAgentRules] = marshalOpenAICodexUserAgentRules(settings.OpenAICodexUserAgentRules)
 	// codex_cli_only 加固
 	updates[SettingKeyMinCodexVersion] = strings.TrimSpace(settings.MinCodexVersion)
 	updates[SettingKeyMaxCodexVersion] = strings.TrimSpace(settings.MaxCodexVersion)
@@ -2363,6 +2414,11 @@ func (s *SettingService) refreshCachedSettings(settings *SystemSettings) {
 	}
 	s.openAICodexUACache.Store(&cachedOpenAICodexUserAgent{
 		value:     codexUA,
+		expiresAt: time.Now().Add(openAICodexUserAgentCacheTTL).UnixNano(),
+	})
+	s.openAICodexUARulesSF.Forget("openai_codex_user_agent_rules")
+	s.openAICodexUARulesCache.Store(&cachedOpenAICodexUserAgentRules{
+		value:     append([]OpenAICodexUserAgentRule(nil), normalizeOpenAICodexUserAgentRules(settings.OpenAICodexUserAgentRules)...),
 		expiresAt: time.Now().Add(openAICodexUserAgentCacheTTL).UnixNano(),
 	})
 	openAIAdvancedSchedulerSettingSF.Forget(openAIAdvancedSchedulerSettingKey)
@@ -3175,6 +3231,7 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyRewriteMessageCacheControl:         strconv.FormatBool(s.defaultRewriteMessageCacheControl()),
 		SettingKeyAntigravityUserAgentVersion:        "",
 		SettingKeyOpenAICodexUserAgent:               "",
+		SettingKeyOpenAICodexUserAgentRules:          "[]",
 		SettingPaymentVisibleMethodAlipaySource:      "",
 		SettingPaymentVisibleMethodWxpaySource:       "",
 		SettingPaymentVisibleMethodAlipayEnabled:     "false",
@@ -3713,6 +3770,7 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	}
 	result.AntigravityUserAgentVersion = antigravity.NormalizeUserAgentVersion(settings[SettingKeyAntigravityUserAgentVersion])
 	result.OpenAICodexUserAgent = strings.TrimSpace(settings[SettingKeyOpenAICodexUserAgent])
+	result.OpenAICodexUserAgentRules = normalizeOpenAICodexUserAgentRules(parseOpenAICodexUserAgentRules(settings[SettingKeyOpenAICodexUserAgentRules]))
 	// codex_cli_only 加固
 	result.MinCodexVersion = settings[SettingKeyMinCodexVersion]
 	result.MaxCodexVersion = settings[SettingKeyMaxCodexVersion]
@@ -3768,6 +3826,52 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	result.AllowUserViewErrorRequests = settings[SettingKeyAllowUserViewErrorRequests] == "true" // default false
 
 	return result
+}
+
+func parseOpenAICodexUserAgentRules(raw string) []OpenAICodexUserAgentRule {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || raw == "[]" {
+		return nil
+	}
+	var items []OpenAICodexUserAgentRule
+	if err := json.Unmarshal([]byte(raw), &items); err != nil {
+		return nil
+	}
+	return items
+}
+
+func normalizeOpenAICodexUserAgentRules(rules []OpenAICodexUserAgentRule) []OpenAICodexUserAgentRule {
+	if len(rules) == 0 {
+		return nil
+	}
+	result := make([]OpenAICodexUserAgentRule, 0, len(rules))
+	for _, rule := range rules {
+		keyword := strings.TrimSpace(rule.Keyword)
+		userAgent := strings.TrimSpace(rule.UserAgent)
+		if keyword == "" || userAgent == "" {
+			continue
+		}
+		result = append(result, OpenAICodexUserAgentRule{
+			Keyword:   keyword,
+			UserAgent: userAgent,
+		})
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
+}
+
+func marshalOpenAICodexUserAgentRules(rules []OpenAICodexUserAgentRule) string {
+	normalized := normalizeOpenAICodexUserAgentRules(rules)
+	if len(normalized) == 0 {
+		return "[]"
+	}
+	data, err := json.Marshal(normalized)
+	if err != nil {
+		return "[]"
+	}
+	return string(data)
 }
 
 func clampAffiliateRebateRate(value float64) float64 {
@@ -5168,6 +5272,104 @@ func (s *SettingService) SetOpenAIFastPolicySettings(ctx context.Context, settin
 	}
 
 	return s.settingRepo.Set(ctx, SettingKeyOpenAIFastPolicySettings, string(data))
+}
+
+// GetOpenAIReasoningGuardSettings 获取 OpenAI reasoning 拦截配置
+func (s *SettingService) GetOpenAIReasoningGuardSettings(ctx context.Context) (*OpenAIReasoningGuardSettings, error) {
+	value, err := s.settingRepo.GetValue(ctx, SettingKeyOpenAIReasoningGuardSettings)
+	if err != nil {
+		if errors.Is(err, ErrSettingNotFound) {
+			return DefaultOpenAIReasoningGuardSettings(), nil
+		}
+		return nil, fmt.Errorf("get openai reasoning guard settings: %w", err)
+	}
+	if value == "" {
+		return DefaultOpenAIReasoningGuardSettings(), nil
+	}
+
+	var settings OpenAIReasoningGuardSettings
+	if err := json.Unmarshal([]byte(value), &settings); err != nil {
+		slog.Warn(
+			"failed to unmarshal openai reasoning guard settings, falling back to defaults",
+			"error", err,
+			"key", SettingKeyOpenAIReasoningGuardSettings,
+		)
+		return DefaultOpenAIReasoningGuardSettings(), nil
+	}
+	if normalized, normErr := normalizeOpenAIReasoningGuardSettings(&settings); normErr == nil {
+		return normalized, nil
+	}
+	slog.Warn(
+		"invalid openai reasoning guard settings, falling back to defaults",
+		"key", SettingKeyOpenAIReasoningGuardSettings,
+	)
+	return DefaultOpenAIReasoningGuardSettings(), nil
+}
+
+// SetOpenAIReasoningGuardSettings 设置 OpenAI reasoning 拦截配置
+func (s *SettingService) SetOpenAIReasoningGuardSettings(ctx context.Context, settings *OpenAIReasoningGuardSettings) error {
+	normalized, err := normalizeOpenAIReasoningGuardSettings(settings)
+	if err != nil {
+		return err
+	}
+	data, err := json.Marshal(normalized)
+	if err != nil {
+		return fmt.Errorf("marshal openai reasoning guard settings: %w", err)
+	}
+	return s.settingRepo.Set(ctx, SettingKeyOpenAIReasoningGuardSettings, string(data))
+}
+
+func normalizeOpenAIReasoningGuardSettings(settings *OpenAIReasoningGuardSettings) (*OpenAIReasoningGuardSettings, error) {
+	if settings == nil {
+		return nil, fmt.Errorf("settings cannot be nil")
+	}
+	normalized := &OpenAIReasoningGuardSettings{
+		Enabled:             settings.Enabled,
+		InterceptStatusCode: settings.InterceptStatusCode,
+		Rules:               make([]OpenAIReasoningGuardModelRule, 0, len(settings.Rules)),
+	}
+	if normalized.InterceptStatusCode == 0 {
+		normalized.InterceptStatusCode = 502
+	}
+	if normalized.InterceptStatusCode < 400 || normalized.InterceptStatusCode > 599 {
+		return nil, fmt.Errorf("intercept_status_code must be between 400-599")
+	}
+	seenModels := make(map[string]struct{}, len(settings.Rules))
+	for i, rule := range settings.Rules {
+		model := strings.TrimSpace(rule.Model)
+		if model == "" {
+			continue
+		}
+		modelKey := strings.ToLower(model)
+		if _, ok := seenModels[modelKey]; ok {
+			return nil, fmt.Errorf("rules[%d] model is duplicated", i)
+		}
+		seenModels[modelKey] = struct{}{}
+		seenCodes := make(map[int]struct{}, len(rule.Codes))
+		codes := make([]int, 0, len(rule.Codes))
+		for j, code := range rule.Codes {
+			if code < 0 {
+				return nil, fmt.Errorf("rules[%d].codes[%d] must be >= 0", i, j)
+			}
+			if _, ok := seenCodes[code]; ok {
+				continue
+			}
+			seenCodes[code] = struct{}{}
+			codes = append(codes, code)
+		}
+		if len(codes) == 0 {
+			continue
+		}
+		sort.Ints(codes)
+		normalized.Rules = append(normalized.Rules, OpenAIReasoningGuardModelRule{
+			Model: model,
+			Codes: codes,
+		})
+	}
+	sort.Slice(normalized.Rules, func(i, j int) bool {
+		return strings.ToLower(normalized.Rules[i].Model) < strings.ToLower(normalized.Rules[j].Model)
+	})
+	return normalized, nil
 }
 
 // SetStreamTimeoutSettings 设置流超时处理配置

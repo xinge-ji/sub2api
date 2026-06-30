@@ -117,6 +117,8 @@ type OpsDataRetentionSettings struct {
 	ErrorLogRetentionDays      int    `json:"error_log_retention_days"`
 	MinuteMetricsRetentionDays int    `json:"minute_metrics_retention_days"`
 	HourlyMetricsRetentionDays int    `json:"hourly_metrics_retention_days"`
+	OpenAIConversationRetentionEnabled bool `json:"openai_conversation_retention_enabled"`
+	OpenAIConversationRetentionDays    int  `json:"openai_conversation_retention_days"`
 }
 
 type OpsAggregationSettings struct {

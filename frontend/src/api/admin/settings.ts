@@ -16,6 +16,22 @@ export interface DefaultSubscriptionSetting {
   validity_days: number;
 }
 
+export interface OpenAIReasoningGuardModelRule {
+  model: string;
+  codes: number[];
+}
+
+export interface OpenAIReasoningGuardSettings {
+  enabled: boolean;
+  rules: OpenAIReasoningGuardModelRule[];
+  intercept_status_code: number;
+}
+
+export interface OpenAICodexUserAgentRule {
+  keyword: string;
+  user_agent: string;
+}
+
 // ── 平台限额类型 ──────────────────────────────────────────────────
 export type PlatformType = "anthropic" | "openai" | "gemini" | "antigravity" | "grok"
 export type QuotaWindowType = "daily" | "weekly" | "monthly"
@@ -563,6 +579,7 @@ export interface SystemSettings {
   rewrite_message_cache_control: boolean;
   antigravity_user_agent_version: string;
   openai_codex_user_agent: string;
+  openai_codex_user_agent_rules: OpenAICodexUserAgentRule[];
   // codex_cli_only 加固
   min_codex_version: string;
   max_codex_version: string;
@@ -626,6 +643,9 @@ export interface SystemSettings {
 
   // OpenAI fast/flex policy
   openai_fast_policy_settings?: OpenAIFastPolicySettings;
+
+  // OpenAI reasoning guard
+  openai_reasoning_guard_settings?: OpenAIReasoningGuardSettings;
 
   // Allow user view error requests
   allow_user_view_error_requests: boolean;
@@ -813,6 +833,7 @@ export interface UpdateSettingsRequest {
   rewrite_message_cache_control?: boolean;
   antigravity_user_agent_version?: string;
   openai_codex_user_agent?: string;
+  openai_codex_user_agent_rules?: OpenAICodexUserAgentRule[];
   // codex_cli_only 加固
   min_codex_version?: string;
   max_codex_version?: string;
@@ -873,6 +894,7 @@ export interface UpdateSettingsRequest {
 
   // OpenAI fast/flex policy
   openai_fast_policy_settings?: OpenAIFastPolicySettings;
+  openai_reasoning_guard_settings?: OpenAIReasoningGuardSettings;
 
   allow_user_view_error_requests?: boolean;
 }

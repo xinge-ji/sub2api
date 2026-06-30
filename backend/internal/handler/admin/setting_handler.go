@@ -261,6 +261,7 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		RewriteMessageCacheControl:             settings.RewriteMessageCacheControl,
 		AntigravityUserAgentVersion:            settings.AntigravityUserAgentVersion,
 		OpenAICodexUserAgent:                   settings.OpenAICodexUserAgent,
+		OpenAICodexUserAgentRules:              append([]service.OpenAICodexUserAgentRule(nil), settings.OpenAICodexUserAgentRules...),
 		MinCodexVersion:                        settings.MinCodexVersion,
 		MaxCodexVersion:                        settings.MaxCodexVersion,
 		CodexCLIOnlyBlacklist:                  settings.CodexCLIOnlyBlacklist,
@@ -317,6 +318,11 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 	} else if fastPolicy != nil {
 		payload.OpenAIFastPolicySettings = openaiFastPolicySettingsToDTO(fastPolicy)
 	}
+	if reasoningGuard, err := h.settingService.GetOpenAIReasoningGuardSettings(c.Request.Context()); err != nil {
+		slog.Error("openai_reasoning_guard_settings_get_failed", "error", err)
+	} else if reasoningGuard != nil {
+		payload.OpenAIReasoningGuardSettings = openAIReasoningGuardSettingsToDTO(reasoningGuard)
+	}
 
 	// Default platform quotas（JSON map）
 	if platformQuotas, err := h.settingService.GetDefaultPlatformQuotas(c.Request.Context()); err != nil {
@@ -340,6 +346,24 @@ func openaiFastPolicySettingsToDTO(s *service.OpenAIFastPolicySettings) *dto.Ope
 	return &dto.OpenAIFastPolicySettings{Rules: rules}
 }
 
+func openAIReasoningGuardSettingsToDTO(s *service.OpenAIReasoningGuardSettings) *dto.OpenAIReasoningGuardSettings {
+	if s == nil {
+		return nil
+	}
+	rules := make([]dto.OpenAIReasoningGuardModelRule, 0, len(s.Rules))
+	for _, rule := range s.Rules {
+		rules = append(rules, dto.OpenAIReasoningGuardModelRule{
+			Model: rule.Model,
+			Codes: append([]int(nil), rule.Codes...),
+		})
+	}
+	return &dto.OpenAIReasoningGuardSettings{
+		Enabled:             s.Enabled,
+		Rules:               rules,
+		InterceptStatusCode: s.InterceptStatusCode,
+	}
+}
+
 // openaiFastPolicySettingsFromDTO converts dto -> service for OpenAI fast policy.
 //
 // 规范化 ServiceTier：在 DTO 进入 service 层之前统一把空字符串归一为
@@ -360,6 +384,24 @@ func openaiFastPolicySettingsFromDTO(s *dto.OpenAIFastPolicySettings) *service.O
 		rules[i].ServiceTier = tier
 	}
 	return &service.OpenAIFastPolicySettings{Rules: rules}
+}
+
+func openAIReasoningGuardSettingsFromDTO(s *dto.OpenAIReasoningGuardSettings) *service.OpenAIReasoningGuardSettings {
+	if s == nil {
+		return nil
+	}
+	rules := make([]service.OpenAIReasoningGuardModelRule, 0, len(s.Rules))
+	for _, rule := range s.Rules {
+		rules = append(rules, service.OpenAIReasoningGuardModelRule{
+			Model: rule.Model,
+			Codes: append([]int(nil), rule.Codes...),
+		})
+	}
+	return &service.OpenAIReasoningGuardSettings{
+		Enabled:             s.Enabled,
+		Rules:               rules,
+		InterceptStatusCode: s.InterceptStatusCode,
+	}
 }
 
 func loginAgreementDocumentsToDTO(items []service.LoginAgreementDocument) []dto.LoginAgreementDocument {
@@ -600,6 +642,7 @@ type UpdateSettingsRequest struct {
 	RewriteMessageCacheControl             *bool   `json:"rewrite_message_cache_control"`
 	AntigravityUserAgentVersion            *string `json:"antigravity_user_agent_version"`
 	OpenAICodexUserAgent                   *string `json:"openai_codex_user_agent"`
+	OpenAICodexUserAgentRules              *[]service.OpenAICodexUserAgentRule `json:"openai_codex_user_agent_rules"`
 
 	// codex_cli_only 加固（global-only）
 	MinCodexVersion                      string `json:"min_codex_version"`
@@ -672,6 +715,9 @@ type UpdateSettingsRequest struct {
 
 	// OpenAI fast/flex policy (optional, only updated when provided)
 	OpenAIFastPolicySettings *dto.OpenAIFastPolicySettings `json:"openai_fast_policy_settings,omitempty"`
+
+	// OpenAI reasoning guard (optional, only updated when provided)
+	OpenAIReasoningGuardSettings *dto.OpenAIReasoningGuardSettings `json:"openai_reasoning_guard_settings,omitempty"`
 
 	// 系统全局 platform quota 默认值（整体替换语义：nil = 不修改，non-nil = 整体覆盖）。
 	DefaultPlatformQuotas map[string]*service.DefaultPlatformQuotaSetting `json:"default_platform_quotas"`
@@ -1477,6 +1523,42 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			return
 		}
 	}
+	if req.OpenAICodexUserAgentRules != nil {
+		const (
+			maxOpenAICodexUARules      = 50
+			maxOpenAICodexUAKeywordLen = 128
+			maxOpenAICodexUAValueLen   = 512
+		)
+		rules := make([]service.OpenAICodexUserAgentRule, 0, len(*req.OpenAICodexUserAgentRules))
+		for _, rule := range *req.OpenAICodexUserAgentRules {
+			keyword := strings.TrimSpace(rule.Keyword)
+			userAgent := strings.TrimSpace(rule.UserAgent)
+			if keyword == "" && userAgent == "" {
+				continue
+			}
+			if keyword == "" || userAgent == "" {
+				response.Error(c, http.StatusBadRequest, "openai_codex_user_agent_rules requires both keyword and user_agent")
+				return
+			}
+			if len(keyword) > maxOpenAICodexUAKeywordLen {
+				response.Error(c, http.StatusBadRequest, "openai_codex_user_agent_rules keyword must be at most 128 characters")
+				return
+			}
+			if len(userAgent) > maxOpenAICodexUAValueLen {
+				response.Error(c, http.StatusBadRequest, "openai_codex_user_agent_rules user_agent must be at most 512 characters")
+				return
+			}
+			rules = append(rules, service.OpenAICodexUserAgentRule{
+				Keyword:   keyword,
+				UserAgent: userAgent,
+			})
+		}
+		if len(rules) > maxOpenAICodexUARules {
+			response.Error(c, http.StatusBadRequest, "openai_codex_user_agent_rules must contain at most 50 rules")
+			return
+		}
+		req.OpenAICodexUserAgentRules = &rules
+	}
 
 	// codex_cli_only 加固：最低/最高 Codex 版本（空=禁用，或合法 semver；max>=min）
 	if req.MinCodexVersion != "" && !semverPattern.MatchString(req.MinCodexVersion) {
@@ -1743,6 +1825,12 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			}
 			return previousSettings.OpenAICodexUserAgent
 		}(),
+		OpenAICodexUserAgentRules: func() []service.OpenAICodexUserAgentRule {
+			if req.OpenAICodexUserAgentRules != nil {
+				return append([]service.OpenAICodexUserAgentRule(nil), (*req.OpenAICodexUserAgentRules)...)
+			}
+			return append([]service.OpenAICodexUserAgentRule(nil), previousSettings.OpenAICodexUserAgentRules...)
+		}(),
 		MinCodexVersion:       strings.TrimSpace(req.MinCodexVersion),
 		MaxCodexVersion:       strings.TrimSpace(req.MaxCodexVersion),
 		CodexCLIOnlyBlacklist: strings.TrimSpace(req.CodexCLIOnlyBlacklist),
@@ -1933,6 +2021,12 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 	// Update OpenAI fast policy (stored under dedicated key, only when provided).
 	if req.OpenAIFastPolicySettings != nil {
 		if err := h.settingService.SetOpenAIFastPolicySettings(c.Request.Context(), openaiFastPolicySettingsFromDTO(req.OpenAIFastPolicySettings)); err != nil {
+			response.BadRequest(c, err.Error())
+			return
+		}
+	}
+	if req.OpenAIReasoningGuardSettings != nil {
+		if err := h.settingService.SetOpenAIReasoningGuardSettings(c.Request.Context(), openAIReasoningGuardSettingsFromDTO(req.OpenAIReasoningGuardSettings)); err != nil {
 			response.BadRequest(c, err.Error())
 			return
 		}
@@ -2145,6 +2239,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		RewriteMessageCacheControl:             updatedSettings.RewriteMessageCacheControl,
 		AntigravityUserAgentVersion:            updatedSettings.AntigravityUserAgentVersion,
 		OpenAICodexUserAgent:                   updatedSettings.OpenAICodexUserAgent,
+		OpenAICodexUserAgentRules:              append([]service.OpenAICodexUserAgentRule(nil), updatedSettings.OpenAICodexUserAgentRules...),
 		MinCodexVersion:                        updatedSettings.MinCodexVersion,
 		MaxCodexVersion:                        updatedSettings.MaxCodexVersion,
 		CodexCLIOnlyBlacklist:                  updatedSettings.CodexCLIOnlyBlacklist,
@@ -2200,6 +2295,11 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		slog.Error("openai_fast_policy_settings_get_failed", "error", err)
 	} else if fastPolicy != nil {
 		payload.OpenAIFastPolicySettings = openaiFastPolicySettingsToDTO(fastPolicy)
+	}
+	if reasoningGuard, err := h.settingService.GetOpenAIReasoningGuardSettings(c.Request.Context()); err != nil {
+		slog.Error("openai_reasoning_guard_settings_get_failed", "error", err)
+	} else if reasoningGuard != nil {
+		payload.OpenAIReasoningGuardSettings = openAIReasoningGuardSettingsToDTO(reasoningGuard)
 	}
 
 	// Default platform quotas（JSON map）—— 与 GetSettings 一致，避免保存后响应缺失该字段
@@ -2650,6 +2750,9 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	if before.OpenAICodexUserAgent != after.OpenAICodexUserAgent {
 		changed = append(changed, "openai_codex_user_agent")
 	}
+	if !equalOpenAICodexUserAgentRules(before.OpenAICodexUserAgentRules, after.OpenAICodexUserAgentRules) {
+		changed = append(changed, "openai_codex_user_agent_rules")
+	}
 	if before.PaymentVisibleMethodAlipaySource != after.PaymentVisibleMethodAlipaySource {
 		changed = append(changed, "payment_visible_method_alipay_source")
 	}
@@ -2945,6 +3048,18 @@ func equalNotifyEmailEntries(a, b []service.NotifyEmailEntry) bool {
 	}
 	for i := range a {
 		if a[i].Email != b[i].Email || a[i].Verified != b[i].Verified || a[i].Disabled != b[i].Disabled {
+			return false
+		}
+	}
+	return true
+}
+
+func equalOpenAICodexUserAgentRules(a, b []service.OpenAICodexUserAgentRule) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i].Keyword != b[i].Keyword || a[i].UserAgent != b[i].UserAgent {
 			return false
 		}
 	}

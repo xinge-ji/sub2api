@@ -43,6 +43,7 @@ return 0
 // 统一共享 cron schedule + leader lock + heartbeat，避免再引一套调度。
 type OpsCleanupService struct {
 	opsRepo           OpsRepository
+	openAIConversationRetentionRepo OpenAIConversationRetentionRepository
 	db                *sql.DB
 	redisClient       *redis.Client
 	cfg               *config.Config
@@ -65,6 +66,7 @@ type OpsCleanupService struct {
 
 func NewOpsCleanupService(
 	opsRepo OpsRepository,
+	openAIConversationRetentionRepo OpenAIConversationRetentionRepository,
 	db *sql.DB,
 	redisClient *redis.Client,
 	cfg *config.Config,
@@ -73,6 +75,7 @@ func NewOpsCleanupService(
 ) *OpsCleanupService {
 	return &OpsCleanupService{
 		opsRepo:           opsRepo,
+		openAIConversationRetentionRepo: openAIConversationRetentionRepo,
 		db:                db,
 		redisClient:       redisClient,
 		cfg:               cfg,
@@ -239,6 +242,9 @@ func (s *OpsCleanupService) computeEffectiveLocked(ctx context.Context) {
 	if dr.HourlyMetricsRetentionDays >= 0 {
 		base.HourlyMetricsRetentionDays = dr.HourlyMetricsRetentionDays
 	}
+	if dr.OpenAIConversationRetentionDays >= 0 {
+		base.OpenAIConversationRetentionDays = dr.OpenAIConversationRetentionDays
+	}
 }
 
 // snapshotEffective 取一份 effective 副本（runCleanupOnce 等读路径使用）。
@@ -317,6 +323,33 @@ func (s *OpsCleanupService) runCleanupOnce(ctx context.Context) (opsCleanupDelet
 			return out, err
 		}
 		*t.counter = n
+	}
+
+	if s.openAIConversationRetentionRepo != nil {
+		cutoff, truncate, ok := opsCleanupPlan(now, effective.OpenAIConversationRetentionDays)
+		if ok {
+			if truncate {
+				cutoff = now
+			}
+			for {
+				n, err := s.openAIConversationRetentionRepo.DeleteExpiredTurns(ctx, cutoff, opsCleanupBatchSize)
+				if err != nil {
+					return out, err
+				}
+				if n == 0 {
+					break
+				}
+			}
+			for {
+				n, err := s.openAIConversationRetentionRepo.DeleteEmptySessions(ctx, opsCleanupBatchSize)
+				if err != nil {
+					return out, err
+				}
+				if n == 0 {
+					break
+				}
+			}
+		}
 	}
 
 	// Channel monitor 每日维护（聚合昨日明细 + 软删过期明细/聚合）。

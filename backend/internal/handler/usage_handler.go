@@ -419,6 +419,46 @@ func parseUserTimeRange(c *gin.Context) (time.Time, time.Time) {
 	return startTime, endTime
 }
 
+func parseUserTimeRangeWithPeriod(c *gin.Context, defaultDays int) (time.Time, time.Time, string) {
+	userTZ := c.Query("timezone")
+	now := timezone.NowInUserLocation(userTZ)
+	startDate := strings.TrimSpace(c.Query("start_date"))
+	endDate := strings.TrimSpace(c.Query("end_date"))
+	period := strings.TrimSpace(c.DefaultQuery("period", "7d"))
+
+	if startDate != "" && endDate != "" {
+		startTime, err := timezone.ParseInUserLocation("2006-01-02", startDate, userTZ)
+		if err != nil {
+			startTime = timezone.StartOfDayInUserLocation(now.AddDate(0, 0, -defaultDays+1), userTZ)
+		}
+		endTime, err := timezone.ParseInUserLocation("2006-01-02", endDate, userTZ)
+		if err != nil {
+			endTime = timezone.StartOfDayInUserLocation(now.AddDate(0, 0, 1), userTZ)
+		} else {
+			endTime = endTime.AddDate(0, 0, 1)
+		}
+		return startTime, endTime, period
+	}
+
+	var startTime time.Time
+	switch period {
+	case "today":
+		startTime = timezone.StartOfDayInUserLocation(now, userTZ)
+	case "3d":
+		startTime = timezone.StartOfDayInUserLocation(now.AddDate(0, 0, -2), userTZ)
+	case "7d":
+		startTime = timezone.StartOfDayInUserLocation(now.AddDate(0, 0, -6), userTZ)
+	case "30d":
+		startTime = timezone.StartOfDayInUserLocation(now.AddDate(0, 0, -29), userTZ)
+	case "90d":
+		startTime = timezone.StartOfDayInUserLocation(now.AddDate(0, 0, -89), userTZ)
+	default:
+		startTime = timezone.StartOfDayInUserLocation(now.AddDate(0, 0, -defaultDays+1), userTZ)
+	}
+	endTime := timezone.StartOfDayInUserLocation(now.AddDate(0, 0, 1), userTZ)
+	return startTime, endTime, period
+}
+
 const (
 	defaultAPIKeyDailyUsageDays = 30
 	maxAPIKeyDailyUsageDays     = 90
@@ -507,6 +547,47 @@ func (h *UsageHandler) DashboardModels(c *gin.Context) {
 		"models":     stats,
 		"start_date": startTime.Format("2006-01-02"),
 		"end_date":   endTime.Add(-24 * time.Hour).Format("2006-01-02"),
+	})
+}
+
+// OpenAIReasoningGuardStats handles per-user OpenAI reasoning interception stats.
+// GET /api/v1/usage/openai-reasoning-guard
+func (h *UsageHandler) OpenAIReasoningGuardStats(c *gin.Context) {
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+
+	startTime, endTime, period := parseUserTimeRangeWithPeriod(c, 7)
+	granularity := strings.TrimSpace(c.DefaultQuery("granularity", "day"))
+	if granularity != "hour" {
+		granularity = "day"
+	}
+
+	stats, err := h.usageService.GetOpenAIReasoningGuardUserStats(c.Request.Context(), service.OpenAIReasoningGuardStatsFilter{
+		UserID:      subject.UserID,
+		StartTime:   startTime,
+		EndTime:     endTime,
+		Granularity: granularity,
+	})
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	response.Success(c, gin.H{
+		"summary":            stats.Summary,
+		"trend":              stats.Trend,
+		"models":             stats.Models,
+		"reasoning_efforts":  stats.ReasoningEfforts,
+		"model_efforts":      stats.ModelEfforts,
+		"model_effort_trend": stats.ModelEffortTrend,
+		"runtime":            stats.Runtime,
+		"period":             period,
+		"granularity":        granularity,
+		"start_date":         startTime.Format("2006-01-02"),
+		"end_date":           endTime.AddDate(0, 0, -1).Format("2006-01-02"),
 	})
 }
 

@@ -1221,6 +1221,7 @@ type OpsCleanupConfig struct {
 	ErrorLogRetentionDays      int `mapstructure:"error_log_retention_days"`
 	MinuteMetricsRetentionDays int `mapstructure:"minute_metrics_retention_days"`
 	HourlyMetricsRetentionDays int `mapstructure:"hourly_metrics_retention_days"`
+	OpenAIConversationRetentionDays int `mapstructure:"openai_conversation_retention_days"`
 }
 
 type OpsAggregationConfig struct {

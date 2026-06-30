@@ -218,6 +218,18 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/usage/openai-reasoning-guard',
+    name: 'OpenAIReasoningGuardStats',
+    component: () => import('@/views/user/OpenAIReasoningGuardStatsView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: 'OpenAI Reasoning Guard',
+      titleKey: 'usage.interceptStatsTitle',
+      descriptionKey: 'usage.interceptStatsDescription'
+    }
+  },
+  {
     path: '/redeem',
     name: 'Redeem',
     component: () => import('@/views/user/RedeemView.vue'),

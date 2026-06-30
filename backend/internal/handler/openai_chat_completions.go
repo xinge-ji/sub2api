@@ -189,6 +189,7 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 
 		service.SetOpsLatencyMs(c, service.OpsRoutingLatencyMsKey, time.Since(routingStart).Milliseconds())
 		forwardStart := time.Now()
+		reasoningGuardCapture := h.beginOpenAIReasoningGuardCapture(c)
 
 		forwardBody := body
 		if channelMapping.Mapped {
@@ -220,6 +221,7 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 			service.SetOpsLatencyMs(c, service.OpsTimeToFirstTokenMsKey, int64(*result.FirstTokenMs))
 		}
 		if err != nil {
+			h.restoreOpenAIReasoningGuardWriter(c, reasoningGuardCapture)
 			if result != nil && result.ImageCount > 0 {
 				reqLog.Warn("openai_chat_completions.forward_partial_error_with_image_result",
 					zap.Int64("account_id", account.ID),
@@ -229,7 +231,7 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 			} else {
 				var failoverErr *service.UpstreamFailoverError
 				if errors.As(err, &failoverErr) {
-					if c.Writer.Size() != writerSizeBeforeForward {
+					if h.openAIReasoningGuardClientOutputStarted(reasoningGuardCapture, false) || c.Writer.Size() != writerSizeBeforeForward {
 						h.handleFailoverExhausted(c, failoverErr, true)
 						return
 					}
@@ -296,6 +298,8 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 
 		userAgent := c.GetHeader("User-Agent")
 		clientIP := ip.GetClientIP(c)
+		clientSessionID := c.GetHeader("session_id")
+		clientConversationID := c.GetHeader("conversation_id")
 		inboundEndpoint := GetInboundEndpoint(c)
 		upstreamEndpoint := resolveOpenAIUpstreamEndpoint(c, account)
 
@@ -309,6 +313,9 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 				Subscription:       subscription,
 				InboundEndpoint:    inboundEndpoint,
 				UpstreamEndpoint:   upstreamEndpoint,
+				RequestBody:        body,
+				ClientSessionID:    clientSessionID,
+				ClientConversationID: clientConversationID,
 				UserAgent:          userAgent,
 				IPAddress:          clientIP,
 				APIKeyService:      h.apiKeyService,
@@ -325,6 +332,19 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 				).Error("openai_chat_completions.record_usage_failed", zap.Error(err))
 			}
 		})
+		if finalizeErr := h.finalizeOpenAIReasoningGuardHTTP(
+			c.Request.Context(),
+			c,
+			reasoningGuardCapture,
+			result,
+			apiKey,
+			account,
+			subscription,
+			inboundEndpoint,
+			upstreamEndpoint,
+		); finalizeErr != nil {
+			reqLog.Error("openai_chat_completions.reasoning_guard_finalize_failed", zap.Error(finalizeErr))
+		}
 		reqLog.Debug("openai_chat_completions.request_completed",
 			zap.Int64("account_id", account.ID),
 			zap.Int("switch_count", switchCount),

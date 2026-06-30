@@ -188,6 +188,7 @@ type SystemSettings struct {
 	RewriteMessageCacheControl             bool   `json:"rewrite_message_cache_control"`
 	AntigravityUserAgentVersion            string `json:"antigravity_user_agent_version"`
 	OpenAICodexUserAgent                   string `json:"openai_codex_user_agent"`
+	OpenAICodexUserAgentRules              []service.OpenAICodexUserAgentRule `json:"openai_codex_user_agent_rules"`
 
 	// codex_cli_only 加固
 	MinCodexVersion                      string `json:"min_codex_version"`
@@ -264,6 +265,9 @@ type SystemSettings struct {
 	// OpenAI fast/flex policy
 	OpenAIFastPolicySettings *OpenAIFastPolicySettings `json:"openai_fast_policy_settings,omitempty"`
 
+	// OpenAI reasoning guard
+	OpenAIReasoningGuardSettings *OpenAIReasoningGuardSettings `json:"openai_reasoning_guard_settings,omitempty"`
+
 	// 系统全局默认平台配额（key = platform，nil/缺省 = 不限制）
 	DefaultPlatformQuotas map[string]*service.DefaultPlatformQuotaSetting `json:"default_platform_quotas,omitempty"`
 
@@ -274,6 +278,17 @@ type SystemSettings struct {
 type DefaultSubscriptionSetting struct {
 	GroupID      int64 `json:"group_id"`
 	ValidityDays int   `json:"validity_days"`
+}
+
+type OpenAIReasoningGuardSettings struct {
+	Enabled             bool                            `json:"enabled"`
+	Rules               []OpenAIReasoningGuardModelRule `json:"rules"`
+	InterceptStatusCode int                             `json:"intercept_status_code"`
+}
+
+type OpenAIReasoningGuardModelRule struct {
+	Model string `json:"model"`
+	Codes []int  `json:"codes"`
 }
 
 type PublicSettings struct {

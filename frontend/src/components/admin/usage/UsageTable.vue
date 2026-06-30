@@ -192,6 +192,18 @@
           <span v-else class="text-sm text-gray-400 dark:text-gray-500">-</span>
         </template>
 
+        <template #cell-conversation="{ row }">
+          <button
+            v-if="row.request_id"
+            type="button"
+            class="inline-flex items-center rounded-md border border-gray-200 px-2 py-1 text-xs font-medium text-gray-700 transition-colors hover:border-primary-300 hover:text-primary-600 dark:border-dark-600 dark:text-gray-300 dark:hover:border-primary-500/40 dark:hover:text-primary-400"
+            @click="$emit('conversationClick', row)"
+          >
+            {{ t('admin.usage.conversation') }}
+          </button>
+          <span v-else class="text-sm text-gray-400 dark:text-gray-500">-</span>
+        </template>
+
         <template #empty><EmptyState :message="t('usage.noRecords')" /></template>
       </DataTable>
     </div>
@@ -459,6 +471,7 @@ withDefaults(defineProps<Props>(), {
 })
 defineEmits<{
   userClick: [userID: number, email?: string]
+  conversationClick: [row: AdminUsageLog]
   sort: [key: string, order: 'asc' | 'desc']
 }>()
 const { t } = useI18n()
