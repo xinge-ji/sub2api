@@ -263,6 +263,7 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 	clientOutputStarted := false
 	pendingLines := make([]string, 0, 8)
 	refusalDetector := newOpenAIChatSilentRefusalDetector(requestBodyLen)
+	var assistantText strings.Builder
 
 	writeLine := func(line string) {
 		if clientDisconnected {
@@ -306,6 +307,7 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 				if u := extractCCStreamUsage(payload); u != nil {
 					usage = *u
 				}
+				appendRawChatCompletionsStreamText(&assistantText, payload)
 				if firstTokenMs == nil && !usageOnlyChunk {
 					elapsed := int(time.Since(startTime).Milliseconds())
 					firstTokenMs = &elapsed
@@ -356,16 +358,17 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 	}
 
 	return &OpenAIForwardResult{
-		RequestID:       requestID,
-		Usage:           usage,
-		Model:           originalModel,
-		BillingModel:    billingModel,
-		UpstreamModel:   upstreamModel,
-		ReasoningEffort: reasoningEffort,
-		ServiceTier:     serviceTier,
-		Stream:          true,
-		Duration:        time.Since(startTime),
-		FirstTokenMs:    firstTokenMs,
+		RequestID:          requestID,
+		Usage:              usage,
+		FinalAssistantText: normalizeConversationText(assistantText.String()),
+		Model:              originalModel,
+		BillingModel:       billingModel,
+		UpstreamModel:      upstreamModel,
+		ReasoningEffort:    reasoningEffort,
+		ServiceTier:        serviceTier,
+		Stream:             true,
+		Duration:           time.Since(startTime),
+		FirstTokenMs:       firstTokenMs,
 	}, nil
 }
 
@@ -443,16 +446,29 @@ func (s *OpenAIGatewayService) bufferRawChatCompletions(
 	_, _ = c.Writer.Write(respBody)
 
 	return &OpenAIForwardResult{
-		RequestID:       requestID,
-		Usage:           usage,
-		Model:           originalModel,
-		BillingModel:    billingModel,
-		UpstreamModel:   upstreamModel,
-		ReasoningEffort: reasoningEffort,
-		ServiceTier:     serviceTier,
-		Stream:          false,
-		Duration:        time.Since(startTime),
+		RequestID:          requestID,
+		Usage:              usage,
+		FinalAssistantText: ExtractOpenAIAssistantFinalTextFromJSON(respBody, "/v1/chat/completions"),
+		Model:              originalModel,
+		BillingModel:       billingModel,
+		UpstreamModel:      upstreamModel,
+		ReasoningEffort:    reasoningEffort,
+		ServiceTier:        serviceTier,
+		Stream:             false,
+		Duration:           time.Since(startTime),
 	}, nil
+}
+
+func appendRawChatCompletionsStreamText(builder *strings.Builder, payload string) {
+	if builder == nil || strings.TrimSpace(payload) == "" || !gjson.Valid(payload) {
+		return
+	}
+	for _, choice := range gjson.Get(payload, "choices").Array() {
+		content := choice.Get("delta.content")
+		if content.Exists() && content.Type == gjson.String {
+			builder.WriteString(content.String())
+		}
+	}
 }
 
 // buildOpenAIChatCompletionsURL 拼接上游 Chat Completions 端点 URL。

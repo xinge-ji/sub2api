@@ -476,14 +476,19 @@ func (s *OpenAIGatewayService) handleChatBufferedStreamingResponse(
 	c.Writer.Header().Set("Content-Type", "application/json; charset=utf-8")
 	c.JSON(http.StatusOK, chatResp)
 
+	var chatRespBody []byte
+	if b, err := json.Marshal(chatResp); err == nil {
+		chatRespBody = b
+	}
 	return &OpenAIForwardResult{
-		RequestID:     requestID,
-		Usage:         usage,
-		Model:         originalModel,
-		BillingModel:  billingModel,
-		UpstreamModel: upstreamModel,
-		Stream:        false,
-		Duration:      time.Since(startTime),
+		RequestID:          requestID,
+		Usage:              usage,
+		FinalAssistantText: ExtractOpenAIAssistantFinalTextFromJSON(chatRespBody, "/v1/chat/completions"),
+		Model:              originalModel,
+		BillingModel:       billingModel,
+		UpstreamModel:      upstreamModel,
+		Stream:             false,
+		Duration:           time.Since(startTime),
 	}, nil
 }
 
@@ -517,6 +522,7 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 	refusalDetector := newOpenAIChatSilentRefusalDetector(requestBodyLen)
 	var streamFailoverErr *UpstreamFailoverError
 	var streamNonFailoverErr error
+	var assistantText strings.Builder
 
 	scanner := s.newUpstreamSSEScanner(resp.Body)
 
@@ -536,14 +542,15 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 
 	resultWithUsage := func() *OpenAIForwardResult {
 		return &OpenAIForwardResult{
-			RequestID:     requestID,
-			Usage:         usage,
-			Model:         originalModel,
-			BillingModel:  billingModel,
-			UpstreamModel: upstreamModel,
-			Stream:        true,
-			Duration:      time.Since(startTime),
-			FirstTokenMs:  firstTokenMs,
+			RequestID:          requestID,
+			Usage:              usage,
+			FinalAssistantText: normalizeConversationText(assistantText.String()),
+			Model:              originalModel,
+			BillingModel:       billingModel,
+			UpstreamModel:      upstreamModel,
+			Stream:             true,
+			Duration:           time.Since(startTime),
+			FirstTokenMs:       firstTokenMs,
 		}
 	}
 
@@ -649,6 +656,7 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 		}
 
 		chunks := apicompat.ResponsesEventToChatChunks(&event, state)
+		appendChatCompletionsChunkText(&assistantText, chunks)
 		if !clientDisconnected {
 			for _, chunk := range chunks {
 				refusalDetector.ObserveChatChunk(chunk)
@@ -707,6 +715,7 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 			return resultWithUsage(), streamNonFailoverErr
 		}
 		if finalChunks := apicompat.FinalizeResponsesChatStream(state); len(finalChunks) > 0 && !clientDisconnected {
+			appendChatCompletionsChunkText(&assistantText, finalChunks)
 			for _, chunk := range finalChunks {
 				refusalDetector.ObserveChatChunk(chunk)
 				sse, err := apicompat.ChatChunkToSSE(chunk)
@@ -981,4 +990,17 @@ func buildChatStreamErrorSSE(code, message string) string {
 		return "data: {\"error\":{\"type\":\"invalid_request_error\",\"code\":\"" + code + "\",\"message\":\"upstream error\"}}\n\n"
 	}
 	return "data: " + string(payload) + "\n\n"
+}
+
+func appendChatCompletionsChunkText(builder *strings.Builder, chunks []apicompat.ChatCompletionsChunk) {
+	if builder == nil {
+		return
+	}
+	for _, chunk := range chunks {
+		for _, choice := range chunk.Choices {
+			if choice.Delta.Content != nil {
+				builder.WriteString(*choice.Delta.Content)
+			}
+		}
+	}
 }

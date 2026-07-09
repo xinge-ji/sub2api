@@ -131,7 +131,6 @@
             :default-sort-order="'desc'"
             @sort="handleSort"
             @userClick="handleUserClick"
-            @conversationClick="openConversationFromUsage"
             @ipGeoBatchFailed="handleIpGeoBatchFailed"
           />
           <Pagination v-if="pagination.total > 0" :page="pagination.page" :total="pagination.total" :page-size="pagination.page_size" @update:page="handlePageChange" @update:pageSize="handlePageSizeChange" />
@@ -214,7 +213,6 @@
             user-clickable
             @userClick="handleUserClick"
             @openErrorDetail="openError"
-            @conversationClick="openConversationFromError"
             @sort="onErrSort"
             @update:page="onErrPage"
             @update:pageSize="onErrPageSize"
@@ -290,11 +288,11 @@
                 <div class="grid gap-4 md:grid-cols-2">
                   <div>
                     <div class="mb-1 text-xs font-medium uppercase text-gray-500 dark:text-gray-400">{{ t('admin.usage.conversationUser') }}</div>
-                    <pre class="max-h-80 whitespace-pre-wrap break-words rounded bg-gray-50 p-3 text-sm text-gray-800 dark:bg-dark-700 dark:text-gray-100">{{ turn.user_input_text || '-' }}</pre>
+                    <pre class="max-h-80 overflow-y-auto whitespace-pre-wrap break-words rounded bg-gray-50 p-3 text-sm text-gray-800 dark:bg-dark-700 dark:text-gray-100">{{ turn.user_input_text || '-' }}</pre>
                   </div>
                   <div>
                     <div class="mb-1 text-xs font-medium uppercase text-gray-500 dark:text-gray-400">{{ t('admin.usage.conversationAssistant') }}</div>
-                    <pre class="max-h-80 whitespace-pre-wrap break-words rounded bg-gray-50 p-3 text-sm text-gray-800 dark:bg-dark-700 dark:text-gray-100">{{ turn.assistant_output_text || '-' }}</pre>
+                    <pre class="max-h-80 overflow-y-auto whitespace-pre-wrap break-words rounded bg-gray-50 p-3 text-sm text-gray-800 dark:bg-dark-700 dark:text-gray-100">{{ turn.assistant_output_text || '-' }}</pre>
                   </div>
                 </div>
               </div>
@@ -755,14 +753,6 @@ const onConversationDetailPageSize = (s: number) => {
   loadConversationDetailByRequestId(selectedConversationRequestId.value, 1)
 }
 
-const openConversationFromUsage = (row: AdminUsageLog) => {
-  loadConversationDetailByRequestId(row.request_id || '')
-}
-
-const openConversationFromError = (row: OpsErrorLog) => {
-  loadConversationDetailByRequestId(row.request_id || row.client_request_id || '')
-}
-
 const openConversationFromList = (row: OpenAIConversationRetentionListItem) => {
   loadConversationDetailByRequestId(row.last_request_id || row.first_request_id)
 }
@@ -847,7 +837,7 @@ const exportToExcel = async () => {
 
 // Column visibility
 const ALWAYS_VISIBLE = ['user', 'created_at']
-const DEFAULT_HIDDEN_COLUMNS = ['reasoning_effort', 'user_agent']
+const DEFAULT_HIDDEN_COLUMNS = ['reasoning_effort']
 const HIDDEN_COLUMNS_KEY = 'usage-hidden-columns'
 
 const allColumns = computed(() => [
@@ -865,8 +855,7 @@ const allColumns = computed(() => [
   { key: 'latency', label: t('usage.latency'), sortable: false },
   { key: 'created_at', label: t('usage.time'), sortable: true },
   { key: 'user_agent', label: t('usage.userAgent'), sortable: false },
-  { key: 'ip_address', label: t('admin.usage.ipAddress'), sortable: false },
-  { key: 'conversation', label: t('admin.usage.conversation'), sortable: false }
+  { key: 'ip_address', label: t('admin.usage.ipAddress'), sortable: false }
 ])
 
 const hiddenColumns = reactive<Set<string>>(new Set())
@@ -917,7 +906,6 @@ const errAllColumns = computed(() => [
   { key: 'created_at', label: t('admin.ops.errorLog.time') },
   { key: 'user_agent', label: t('usage.userAgent') },
   { key: 'client_ip', label: t('admin.ops.errorLog.ip') },
-  { key: 'conversation', label: t('admin.usage.conversation') },
   { key: 'actions', label: t('admin.ops.errorLog.action') },
 ])
 
@@ -983,6 +971,7 @@ const loadSavedColumns = () => {
       (JSON.parse(saved) as string[]).forEach((key) => {
         hiddenColumns.add(key)
       })
+      hiddenColumns.delete('user_agent')
     } else {
       DEFAULT_HIDDEN_COLUMNS.forEach((key) => {
         hiddenColumns.add(key)
