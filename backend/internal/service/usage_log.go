@@ -164,7 +164,9 @@ type UsageLog struct {
 	DurationMs   *int
 	FirstTokenMs *int
 	UserAgent    *string
-	IPAddress    *string
+	// UpstreamUserAgent is the final User-Agent sent to the upstream provider.
+	UpstreamUserAgent *string
+	IPAddress         *string
 
 	// Cache TTL Override 标记（管理员强制替换了缓存 TTL 计费）
 	CacheTTLOverridden bool

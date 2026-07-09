@@ -185,6 +185,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 
 	agentTaskRecoveryTried := false
 	var resp *http.Response
+	upstreamUserAgent := ""
 	for {
 		upstreamCtx, releaseUpstreamCtx := detachUpstreamContext(ctx)
 		upstreamReq, buildErr := s.buildUpstreamRequestOpenAIPassthrough(upstreamCtx, c, account, body, token)
@@ -192,6 +193,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 		if buildErr != nil {
 			return nil, buildErr
 		}
+		upstreamUserAgent = strings.TrimSpace(upstreamReq.Header.Get("user-agent"))
 
 		upstreamStart := time.Now()
 		resp, err = s.httpUpstream.Do(upstreamReq, proxyURL, account.ID, account.Concurrency)
@@ -270,17 +272,18 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 	}
 
 	forwardResult := &OpenAIForwardResult{
-		RequestID:       resp.Header.Get("x-request-id"),
-		ResponseID:      responseID,
-		Usage:           *usage,
-		Model:           reqModel,
-		UpstreamModel:   upstreamPassthroughModel,
-		ServiceTier:     serviceTier,
-		ReasoningEffort: reasoningEffort,
-		Stream:          reqStream,
-		OpenAIWSMode:    false,
-		Duration:        time.Since(startTime),
-		FirstTokenMs:    firstTokenMs,
+		RequestID:         resp.Header.Get("x-request-id"),
+		ResponseID:        responseID,
+		Usage:             *usage,
+		Model:             reqModel,
+		UpstreamModel:     upstreamPassthroughModel,
+		ServiceTier:       serviceTier,
+		ReasoningEffort:   reasoningEffort,
+		Stream:            reqStream,
+		OpenAIWSMode:      false,
+		Duration:          time.Since(startTime),
+		FirstTokenMs:      firstTokenMs,
+		UpstreamUserAgent: upstreamUserAgent,
 	}
 	if imageCount > 0 {
 		forwardResult.ImageCount = imageCount

@@ -4,7 +4,7 @@
  */
 
 import { apiClient } from '../client'
-import type { AdminUsageLog, UsageQueryParams, PaginatedResponse, UsageRequestType } from '@/types'
+import type { AdminUsageLog, UsageQueryParams, PaginatedResponse, UsageRequestType, OpenAIConversationRetentionView, OpenAIConversationRetentionListItem } from '@/types'
 import type { EndpointStat } from '@/types'
 
 // ==================== Types ====================
@@ -204,9 +204,33 @@ export async function cancelCleanupTask(taskId: number): Promise<{ id: number; s
   return data
 }
 
+export async function getConversationByRequestId(
+  requestId: string,
+  params?: { page?: number; page_size?: number }
+): Promise<OpenAIConversationRetentionView> {
+  const { data } = await apiClient.get<OpenAIConversationRetentionView>(
+    `/admin/usage/conversations/by-request/${encodeURIComponent(requestId)}`,
+    { params }
+  )
+  return data
+}
+
+export async function listConversations(
+  params: AdminUsageQueryParams & { reasoning_effort?: string; timezone?: string },
+  options?: { signal?: AbortSignal }
+): Promise<PaginatedResponse<OpenAIConversationRetentionListItem>> {
+  const { data } = await apiClient.get<PaginatedResponse<OpenAIConversationRetentionListItem>>('/admin/usage/conversations', {
+    params,
+    signal: options?.signal
+  })
+  return data
+}
+
 export const adminUsageAPI = {
   list,
   getStats,
+  listConversations,
+  getConversationByRequestId,
   searchUsers,
   searchApiKeys,
   listCleanupTasks,

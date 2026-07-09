@@ -507,6 +507,10 @@ const (
 	// 当客户端 UA 被识别为浏览器（Chrome/Firefox/Safari/Edge 等）时，转发给 OpenAI 上游前会替换为此值，
 	// 用于避免 Cloudflare 对浏览器型 UA 的质询拦截。
 	SettingKeyOpenAICodexUserAgent = "openai_codex_user_agent"
+	// SettingKeyOpenAICodexUserAgentRules OpenAI Codex UA 规则列表（JSON 数组）。
+	// 当请求 URL 包含 keyword 时，转发给 OpenAI 上游前会替换为对应 user_agent。
+	// 仅用于 OpenAI OAuth 链路的浏览器型 UA 改写。
+	SettingKeyOpenAICodexUserAgentRules = "openai_codex_user_agent_rules"
 	// SettingKeyOpenAIAllowClaudeCodeCodexPlugin 已废弃：历史全局开关只作为升级迁移输入读取。
 	// 迁移后等价规则写入 SettingKeyCodexCLIOnlyWhitelist，不再参与运行时判定。
 	SettingKeyOpenAIAllowClaudeCodeCodexPlugin = "openai_allow_claude_code_codex_plugin"

@@ -412,6 +412,7 @@ func ProvideOpsAlertEvaluatorService(
 // opsService 用来反向注入 cleanup hook，以便 UI 改清理设置时能 Reload cron。
 func ProvideOpsCleanupService(
 	opsRepo OpsRepository,
+	openAIConversationRetentionRepo OpenAIConversationRetentionRepository,
 	db *sql.DB,
 	redisClient *redis.Client,
 	cfg *config.Config,
@@ -419,7 +420,7 @@ func ProvideOpsCleanupService(
 	settingRepo SettingRepository,
 	opsService *OpsService,
 ) *OpsCleanupService {
-	svc := NewOpsCleanupService(opsRepo, db, redisClient, cfg, channelMonitorSvc, settingRepo)
+	svc := NewOpsCleanupService(opsRepo, openAIConversationRetentionRepo, db, redisClient, cfg, channelMonitorSvc, settingRepo)
 	svc.Start()
 	if opsService != nil {
 		opsService.SetCleanupReloader(svc)
@@ -672,6 +673,18 @@ func ProvideAPIKeyService(
 	return svc
 }
 
+func ProvideUsageService(
+	usageRepo UsageLogRepository,
+	userRepo UserRepository,
+	entClient *dbent.Client,
+	authCacheInvalidator APIKeyAuthCacheInvalidator,
+	conversationRetentionRepo OpenAIConversationRetentionRepository,
+) *UsageService {
+	svc := NewUsageService(usageRepo, userRepo, entClient, authCacheInvalidator)
+	svc.SetOpenAIConversationRetentionRepository(conversationRetentionRepo)
+	return svc
+}
+
 // ProviderSet is the Wire provider set for all services
 var ProviderSet = wire.NewSet(
 	// Core services
@@ -686,7 +699,7 @@ var ProviderSet = wire.NewSet(
 	NewProxyService,
 	NewRedeemService,
 	NewPromoService,
-	NewUsageService,
+	ProvideUsageService,
 	NewDashboardService,
 	ProvidePricingService,
 	NewBillingService,

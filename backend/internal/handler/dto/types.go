@@ -558,6 +558,8 @@ type AdminUsageLog struct {
 
 	// IPAddress 用户请求 IP
 	IPAddress *string `json:"ip_address,omitempty"`
+	// UpstreamUserAgent is the final User-Agent sent to the upstream provider.
+	UpstreamUserAgent *string `json:"upstream_user_agent,omitempty"`
 
 	// Account 最小账号信息（避免泄露敏感字段）
 	Account *AccountSummary `json:"account,omitempty"`

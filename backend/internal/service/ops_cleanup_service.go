@@ -42,29 +42,32 @@ return 0
 // 附带：在 runCleanupOnce 末尾调用 ChannelMonitorService.RunDailyMaintenance，
 // 统一共享 cron schedule + leader lock + heartbeat，避免再引一套调度。
 type OpsCleanupService struct {
-	opsRepo           OpsRepository
-	db                *sql.DB
-	redisClient       *redis.Client
-	cfg               *config.Config
-	channelMonitorSvc *ChannelMonitorService
-	settingRepo       SettingRepository
+	opsRepo                         OpsRepository
+	openAIConversationRetentionRepo OpenAIConversationRetentionRepository
+	db                              *sql.DB
+	redisClient                     *redis.Client
+	cfg                             *config.Config
+	channelMonitorSvc               *ChannelMonitorService
+	settingRepo                     SettingRepository
 
 	instanceID string
 
 	// mu 守护 cron 实例切换 + effective 配置切换。
 	// 这里不再用 startOnce/stopOnce，是因为 Reload 需要"停旧 cron 重启新 cron"，
 	// 而 Once 一旦触发就无法再次执行；改为 started/stopped 布尔配合 mu。
-	mu        sync.Mutex
-	cron      *cron.Cron
-	started   bool
-	stopped   bool
-	effective config.OpsCleanupConfig
+	mu                                       sync.Mutex
+	cron                                     *cron.Cron
+	started                                  bool
+	stopped                                  bool
+	effective                                config.OpsCleanupConfig
+	effectiveOpenAIConversationRetentionDays int
 
 	warnNoRedisOnce sync.Once
 }
 
 func NewOpsCleanupService(
 	opsRepo OpsRepository,
+	openAIConversationRetentionRepo OpenAIConversationRetentionRepository,
 	db *sql.DB,
 	redisClient *redis.Client,
 	cfg *config.Config,
@@ -72,13 +75,14 @@ func NewOpsCleanupService(
 	settingRepo SettingRepository,
 ) *OpsCleanupService {
 	return &OpsCleanupService{
-		opsRepo:           opsRepo,
-		db:                db,
-		redisClient:       redisClient,
-		cfg:               cfg,
-		channelMonitorSvc: channelMonitorSvc,
-		settingRepo:       settingRepo,
-		instanceID:        uuid.NewString(),
+		opsRepo:                         opsRepo,
+		openAIConversationRetentionRepo: openAIConversationRetentionRepo,
+		db:                              db,
+		redisClient:                     redisClient,
+		cfg:                             cfg,
+		channelMonitorSvc:               channelMonitorSvc,
+		settingRepo:                     settingRepo,
+		instanceID:                      uuid.NewString(),
 	}
 }
 
@@ -203,7 +207,11 @@ func (s *OpsCleanupService) computeEffectiveLocked(ctx context.Context) {
 	if s.cfg != nil {
 		base = s.cfg.Ops.Cleanup
 	}
-	defer func() { s.effective = base }()
+	openAIConversationRetentionDays := defaultOpsAdvancedSettings().DataRetention.OpenAIConversationRetentionDays
+	defer func() {
+		s.effective = base
+		s.effectiveOpenAIConversationRetentionDays = openAIConversationRetentionDays
+	}()
 
 	if s.settingRepo == nil {
 		return
@@ -219,12 +227,13 @@ func (s *OpsCleanupService) computeEffectiveLocked(ctx context.Context) {
 		}
 		return
 	}
-	var adv OpsAdvancedSettings
-	if err := json.Unmarshal([]byte(raw), &adv); err != nil {
+	adv := defaultOpsAdvancedSettings()
+	if err := json.Unmarshal([]byte(raw), adv); err != nil {
 		logger.LegacyPrintf("service.ops_cleanup",
 			"[OpsCleanup] parse advanced settings failed, using cfg: %v", err)
 		return
 	}
+	normalizeOpsAdvancedSettings(adv)
 	dr := adv.DataRetention
 	base.Enabled = dr.CleanupEnabled
 	if sched := strings.TrimSpace(dr.CleanupSchedule); sched != "" {
@@ -239,6 +248,9 @@ func (s *OpsCleanupService) computeEffectiveLocked(ctx context.Context) {
 	if dr.HourlyMetricsRetentionDays >= 0 {
 		base.HourlyMetricsRetentionDays = dr.HourlyMetricsRetentionDays
 	}
+	if dr.OpenAIConversationRetentionDays >= 0 {
+		openAIConversationRetentionDays = dr.OpenAIConversationRetentionDays
+	}
 }
 
 // snapshotEffective 取一份 effective 副本（runCleanupOnce 等读路径使用）。
@@ -246,6 +258,12 @@ func (s *OpsCleanupService) snapshotEffective() config.OpsCleanupConfig {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.effective
+}
+
+func (s *OpsCleanupService) snapshotOpenAIConversationRetentionDays() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.effectiveOpenAIConversationRetentionDays
 }
 
 // refreshEffectiveBeforeRun 在 cron 触发时刷新 effective，让 retention 改动当次即生效。
@@ -295,6 +313,7 @@ func (s *OpsCleanupService) runCleanupOnce(ctx context.Context) (opsCleanupDelet
 	}
 
 	effective := s.snapshotEffective()
+	openAIConversationRetentionDays := s.snapshotOpenAIConversationRetentionDays()
 	now := time.Now().UTC()
 
 	targets := []opsCleanupTarget{
@@ -318,6 +337,29 @@ func (s *OpsCleanupService) runCleanupOnce(ctx context.Context) (opsCleanupDelet
 			return out, err
 		}
 		*t.counter = n
+	}
+
+	if s.openAIConversationRetentionRepo != nil {
+		cutoff, truncate, ok := opsCleanupPlan(now, openAIConversationRetentionDays)
+		if ok {
+			if truncate {
+				if _, err := opsCleanupRunOne(ctx, s.db, true, cutoff, "openai_retained_turns", "created_at", false, opsCleanupBatchSize); err != nil {
+					return out, err
+				}
+				out.openAIConversationTurns = -1
+			} else {
+				n, err := s.openAIConversationRetentionRepo.DeleteExpiredTurns(ctx, cutoff, opsCleanupBatchSize)
+				if err != nil {
+					return out, err
+				}
+				out.openAIConversationTurns = n
+			}
+			n, err := s.openAIConversationRetentionRepo.DeleteEmptySessions(ctx, opsCleanupBatchSize)
+			if err != nil {
+				return out, err
+			}
+			out.openAIConversationSessions = n
+		}
 	}
 
 	// Channel monitor 每日维护（聚合昨日明细 + 软删过期明细/聚合）。

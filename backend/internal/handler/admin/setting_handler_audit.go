@@ -437,6 +437,9 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	if before.OpenAICodexUserAgent != after.OpenAICodexUserAgent {
 		changed = append(changed, "openai_codex_user_agent")
 	}
+	if !sameOpenAICodexUserAgentRules(before.OpenAICodexUserAgentRules, after.OpenAICodexUserAgentRules) {
+		changed = append(changed, "openai_codex_user_agent_rules")
+	}
 	if before.PaymentVisibleMethodAlipaySource != after.PaymentVisibleMethodAlipaySource {
 		changed = append(changed, "payment_visible_method_alipay_source")
 	}
@@ -543,6 +546,18 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	}
 	changed = appendAuthSourceDefaultChanges(changed, beforeAuthSourceDefaults, afterAuthSourceDefaults)
 	return changed
+}
+
+func sameOpenAICodexUserAgentRules(a, b []service.OpenAICodexUserAgentRule) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i].Keyword != b[i].Keyword || a[i].UserAgent != b[i].UserAgent {
+			return false
+		}
+	}
+	return true
 }
 
 func appendAuthSourceDefaultChanges(changed []string, before *service.AuthSourceDefaultSettings, after *service.AuthSourceDefaultSettings) []string {

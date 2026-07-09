@@ -218,12 +218,21 @@ type OpenAIUsage struct {
 	ImageOutputTokens        int `json:"image_output_tokens,omitempty"`
 }
 
+type OpenAIResponseShape struct {
+	HasFinalAnswer   bool
+	HasCommentary    bool
+	HasToolCall      bool
+	HasReasoningItem bool
+}
+
 // OpenAIForwardResult represents the result of forwarding
 type OpenAIForwardResult struct {
-	RequestID  string
-	ResponseID string
-	Usage      OpenAIUsage
-	Model      string // 原始模型（用于响应和日志显示）
+	RequestID          string
+	ResponseID         string
+	Usage              OpenAIUsage
+	FinalAssistantText string
+	ResponseShape      OpenAIResponseShape
+	Model              string // 原始模型（用于响应和日志显示）
 	// BillingModel is the model used for cost calculation.
 	// When non-empty, CalculateCost uses this instead of Model.
 	// This is set by the Anthropic Messages conversion path where
@@ -250,6 +259,7 @@ type OpenAIForwardResult struct {
 	Duration              time.Duration
 	FirstTokenMs          *int
 	ClientDisconnect      bool
+	UpstreamUserAgent     string
 	ImageCount            int
 	ImageSize             string
 	ImageInputSize        string
@@ -385,31 +395,32 @@ var ErrNoAvailableCompactAccounts = errors.New("no available accounts support /r
 
 // OpenAIGatewayService handles OpenAI API gateway operations
 type OpenAIGatewayService struct {
-	accountRepo           AccountRepository
-	usageLogRepo          UsageLogRepository
-	usageBillingRepo      UsageBillingRepository
-	userRepo              UserRepository
-	userSubRepo           UserSubscriptionRepository
-	cache                 GatewayCache
-	cfg                   *config.Config
-	codexDetector         CodexClientRestrictionDetector
-	schedulerSnapshot     *SchedulerSnapshotService
-	concurrencyService    *ConcurrencyService
-	billingService        *BillingService
-	rateLimitService      *RateLimitService
-	billingCacheService   *BillingCacheService
-	userGroupRateResolver *userGroupRateResolver
-	httpUpstream          HTTPUpstream
-	deferredService       *DeferredService
-	openAITokenProvider   *OpenAITokenProvider
-	grokTokenProvider     *GrokTokenProvider
-	toolCorrector         *CodexToolCorrector
-	openaiWSResolver      OpenAIWSProtocolResolver
-	resolver              *ModelPricingResolver
-	channelService        *ChannelService
-	balanceNotifyService  *BalanceNotifyService
-	settingService        *SettingService
-	userPlatformQuotaRepo UserPlatformQuotaRepository
+	accountRepo               AccountRepository
+	usageLogRepo              UsageLogRepository
+	usageBillingRepo          UsageBillingRepository
+	userRepo                  UserRepository
+	userSubRepo               UserSubscriptionRepository
+	cache                     GatewayCache
+	cfg                       *config.Config
+	codexDetector             CodexClientRestrictionDetector
+	schedulerSnapshot         *SchedulerSnapshotService
+	concurrencyService        *ConcurrencyService
+	billingService            *BillingService
+	rateLimitService          *RateLimitService
+	billingCacheService       *BillingCacheService
+	userGroupRateResolver     *userGroupRateResolver
+	httpUpstream              HTTPUpstream
+	deferredService           *DeferredService
+	openAITokenProvider       *OpenAITokenProvider
+	grokTokenProvider         *GrokTokenProvider
+	toolCorrector             *CodexToolCorrector
+	openaiWSResolver          OpenAIWSProtocolResolver
+	resolver                  *ModelPricingResolver
+	channelService            *ChannelService
+	balanceNotifyService      *BalanceNotifyService
+	settingService            *SettingService
+	userPlatformQuotaRepo     UserPlatformQuotaRepository
+	conversationRetentionRepo OpenAIConversationRetentionRepository
 
 	openaiWSPoolOnce              sync.Once
 	openaiWSStateStoreOnce        sync.Once
@@ -511,6 +522,13 @@ func NewOpenAIGatewayService(
 	}
 	svc.logOpenAIWSModeBootstrap()
 	return svc
+}
+
+func (s *OpenAIGatewayService) SetOpenAIConversationRetentionRepository(repo OpenAIConversationRetentionRepository) {
+	if s == nil {
+		return
+	}
+	s.conversationRetentionRepo = repo
 }
 
 // ResolveChannelMapping 解析渠道级模型映射（代理到 ChannelService）

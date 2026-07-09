@@ -776,6 +776,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			}
 			return nil, err
 		}
+		upstreamUserAgent := strings.TrimSpace(upstreamReq.Header.Get("user-agent"))
 
 		// Get proxy URL
 		proxyURL := ""
@@ -936,18 +937,19 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		}
 
 		forwardResult := &OpenAIForwardResult{
-			RequestID:       resp.Header.Get("x-request-id"),
-			ResponseID:      responseID,
-			Usage:           *usage,
-			Model:           originalModel,
-			BillingModel:    billingModel,
-			UpstreamModel:   upstreamModel,
-			ServiceTier:     serviceTier,
-			ReasoningEffort: reasoningEffort,
-			Stream:          reqStream,
-			OpenAIWSMode:    false,
-			Duration:        time.Since(startTime),
-			FirstTokenMs:    firstTokenMs,
+			RequestID:         resp.Header.Get("x-request-id"),
+			ResponseID:        responseID,
+			Usage:             *usage,
+			Model:             originalModel,
+			BillingModel:      billingModel,
+			UpstreamModel:     upstreamModel,
+			ServiceTier:       serviceTier,
+			ReasoningEffort:   reasoningEffort,
+			Stream:            reqStream,
+			OpenAIWSMode:      false,
+			Duration:          time.Since(startTime),
+			FirstTokenMs:      firstTokenMs,
+			UpstreamUserAgent: upstreamUserAgent,
 		}
 		if imageCount > 0 {
 			forwardResult.ImageCount = imageCount
@@ -1107,9 +1109,37 @@ func (s *OpenAIGatewayService) overrideBrowserUserAgent(ctx context.Context, acc
 	}
 	codexUA := DefaultOpenAICodexUserAgent
 	if s != nil && s.settingService != nil {
+		if matched := s.matchOpenAICodexUserAgentRule(ctx, req); matched != "" {
+			codexUA = matched
+			req.Header.Set("user-agent", codexUA)
+			return
+		}
 		if v := strings.TrimSpace(s.settingService.GetOpenAICodexUserAgent(ctx)); v != "" {
 			codexUA = v
 		}
 	}
 	req.Header.Set("user-agent", codexUA)
+}
+
+func (s *OpenAIGatewayService) matchOpenAICodexUserAgentRule(ctx context.Context, req *http.Request) string {
+	if s == nil || s.settingService == nil || req == nil {
+		return ""
+	}
+	requestTarget := strings.ToLower(strings.TrimSpace(req.URL.RequestURI()))
+	if requestTarget == "" {
+		requestTarget = strings.ToLower(strings.TrimSpace(req.URL.Path))
+	}
+	if requestTarget == "" {
+		return ""
+	}
+	for _, rule := range s.settingService.GetOpenAICodexUserAgentRules(ctx) {
+		keyword := strings.ToLower(strings.TrimSpace(rule.Keyword))
+		if keyword == "" {
+			continue
+		}
+		if strings.Contains(requestTarget, keyword) {
+			return strings.TrimSpace(rule.UserAgent)
+		}
+	}
+	return ""
 }

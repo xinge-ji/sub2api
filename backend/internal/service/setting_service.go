@@ -57,6 +57,8 @@ type SettingService struct {
 	antigravityUAVersionSF      singleflight.Group
 	openAICodexUACache          atomic.Value // *cachedOpenAICodexUserAgent
 	openAICodexUASF             singleflight.Group
+	openAICodexUARulesCache     atomic.Value // *cachedOpenAICodexUserAgentRules
+	openAICodexUARulesSF        singleflight.Group
 	codexRestrictionPolicyCache atomic.Value // *cachedCodexRestrictionPolicy
 	codexRestrictionPolicySF    singleflight.Group
 

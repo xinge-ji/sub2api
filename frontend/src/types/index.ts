@@ -22,6 +22,67 @@ export interface FetchOptions {
   signal?: AbortSignal
 }
 
+// ==================== OpenAI Conversation Retention Types ====================
+
+export interface OpenAIConversationRetentionSession {
+  id: number
+  user_id: number
+  api_key_id: number
+  account_id?: number | null
+  group_id?: number | null
+  session_key: string
+  client_session_id: string
+  requested_model: string
+  upstream_model: string
+  reasoning_effort: string
+  first_request_id: string
+  last_request_id: string
+  first_response_id: string
+  last_response_id: string
+  turn_count: number
+  created_at: string
+  updated_at: string
+}
+
+export interface OpenAIConversationRetentionTurn {
+  id: number
+  session_id: number
+  user_id: number
+  api_key_id: number
+  account_id?: number | null
+  group_id?: number | null
+  request_id: string
+  response_id: string
+  turn_index: number
+  requested_model: string
+  upstream_model: string
+  reasoning_effort: string
+  stream: boolean
+  request_type: UsageRequestType
+  inbound_endpoint: string
+  upstream_endpoint: string
+  user_input_text: string
+  assistant_output_text: string
+  created_at: string
+}
+
+export interface OpenAIConversationRetentionView {
+  session: OpenAIConversationRetentionSession | null
+  turns: OpenAIConversationRetentionTurn[]
+  total: number
+  page: number
+  page_size: number
+  pages: number
+}
+
+export interface OpenAIConversationRetentionListItem extends OpenAIConversationRetentionSession {
+  user_email: string
+  api_key_name: string
+  account_name: string
+  group_name: string
+  last_turn?: OpenAIConversationRetentionTurn | null
+}
+
 // ==================== Notification Types ====================
 
 /** Notification email entry with enable/disable and verification state.
@@ -1567,6 +1628,7 @@ export interface UsageLog {
 
   // User-Agent
   user_agent: string | null
+  upstream_user_agent?: string | null
   ip_address?: string | null
 
   // Cache TTL Override

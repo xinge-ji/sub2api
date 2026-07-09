@@ -221,17 +221,18 @@ type UpdateSettingsRequest struct {
 	BackendModeEnabled bool `json:"backend_mode_enabled"`
 
 	// Gateway forwarding behavior
-	EnableFingerprintUnification           *bool   `json:"enable_fingerprint_unification"`
-	EnableMetadataPassthrough              *bool   `json:"enable_metadata_passthrough"`
-	EnableCCHSigning                       *bool   `json:"enable_cch_signing"`
-	EnableClaudeOAuthSystemPromptInjection *bool   `json:"enable_claude_oauth_system_prompt_injection"`
-	ClaudeOAuthSystemPrompt                *string `json:"claude_oauth_system_prompt"`
-	ClaudeOAuthSystemPromptBlocks          *string `json:"claude_oauth_system_prompt_blocks"`
-	EnableAnthropicCacheTTL1hInjection     *bool   `json:"enable_anthropic_cache_ttl_1h_injection"`
-	RewriteMessageCacheControl             *bool   `json:"rewrite_message_cache_control"`
-	EnableClientDatelineNormalization      *bool   `json:"enable_client_dateline_normalization"`
-	AntigravityUserAgentVersion            *string `json:"antigravity_user_agent_version"`
-	OpenAICodexUserAgent                   *string `json:"openai_codex_user_agent"`
+	EnableFingerprintUnification           *bool                               `json:"enable_fingerprint_unification"`
+	EnableMetadataPassthrough              *bool                               `json:"enable_metadata_passthrough"`
+	EnableCCHSigning                       *bool                               `json:"enable_cch_signing"`
+	EnableClaudeOAuthSystemPromptInjection *bool                               `json:"enable_claude_oauth_system_prompt_injection"`
+	ClaudeOAuthSystemPrompt                *string                             `json:"claude_oauth_system_prompt"`
+	ClaudeOAuthSystemPromptBlocks          *string                             `json:"claude_oauth_system_prompt_blocks"`
+	EnableAnthropicCacheTTL1hInjection     *bool                               `json:"enable_anthropic_cache_ttl_1h_injection"`
+	RewriteMessageCacheControl             *bool                               `json:"rewrite_message_cache_control"`
+	EnableClientDatelineNormalization      *bool                               `json:"enable_client_dateline_normalization"`
+	AntigravityUserAgentVersion            *string                             `json:"antigravity_user_agent_version"`
+	OpenAICodexUserAgent                   *string                             `json:"openai_codex_user_agent"`
+	OpenAICodexUserAgentRules              *[]service.OpenAICodexUserAgentRule `json:"openai_codex_user_agent_rules"`
 
 	// codex_cli_only 加固（global-only）
 	MinCodexVersion                      string `json:"min_codex_version"`
@@ -1198,6 +1199,20 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			return
 		}
 	}
+	if req.OpenAICodexUserAgentRules != nil {
+		normalized := service.NormalizeOpenAICodexUserAgentRules(*req.OpenAICodexUserAgentRules)
+		for _, rule := range normalized {
+			if len(rule.Keyword) > 256 {
+				response.Error(c, http.StatusBadRequest, "openai_codex_user_agent_rules keyword must be at most 256 characters")
+				return
+			}
+			if len(rule.UserAgent) > 512 {
+				response.Error(c, http.StatusBadRequest, "openai_codex_user_agent_rules user_agent must be at most 512 characters")
+				return
+			}
+		}
+		req.OpenAICodexUserAgentRules = &normalized
+	}
 
 	// codex_cli_only 加固：最低/最高 Codex 版本（空=禁用，或合法 semver；max>=min）
 	if req.MinCodexVersion != "" && !semverPattern.MatchString(req.MinCodexVersion) {
@@ -1474,6 +1489,12 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 				return *req.OpenAICodexUserAgent
 			}
 			return previousSettings.OpenAICodexUserAgent
+		}(),
+		OpenAICodexUserAgentRules: func() []service.OpenAICodexUserAgentRule {
+			if req.OpenAICodexUserAgentRules != nil {
+				return *req.OpenAICodexUserAgentRules
+			}
+			return previousSettings.OpenAICodexUserAgentRules
 		}(),
 		MinCodexVersion:       strings.TrimSpace(req.MinCodexVersion),
 		MaxCodexVersion:       strings.TrimSpace(req.MaxCodexVersion),
@@ -1923,6 +1944,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		EnableClientDatelineNormalization:                      updatedSettings.EnableClientDatelineNormalization,
 		AntigravityUserAgentVersion:                            updatedSettings.AntigravityUserAgentVersion,
 		OpenAICodexUserAgent:                                   updatedSettings.OpenAICodexUserAgent,
+		OpenAICodexUserAgentRules:                              updatedSettings.OpenAICodexUserAgentRules,
 		MinCodexVersion:                                        updatedSettings.MinCodexVersion,
 		MaxCodexVersion:                                        updatedSettings.MaxCodexVersion,
 		CodexCLIOnlyBlacklist:                                  updatedSettings.CodexCLIOnlyBlacklist,

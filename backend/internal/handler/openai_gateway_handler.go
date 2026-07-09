@@ -639,6 +639,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 				Subscription:       subscription,
 				InboundEndpoint:    inboundEndpoint,
 				UpstreamEndpoint:   upstreamEndpoint,
+				RequestBody:        body,
 				UserAgent:          userAgent,
 				IPAddress:          clientIP,
 				RequestPayloadHash: requestPayloadHash,

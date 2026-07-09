@@ -150,6 +150,18 @@
           </div>
         </template>
 
+        <template #cell-conversation="{ row }">
+          <button
+            v-if="row.request_id || row.client_request_id"
+            type="button"
+            class="inline-flex items-center rounded-md border border-gray-200 px-2 py-1 text-xs font-medium text-gray-700 transition-colors hover:border-primary-300 hover:text-primary-600 dark:border-dark-600 dark:text-gray-300 dark:hover:border-primary-500/40 dark:hover:text-primary-400"
+            @click.stop="emit('conversationClick', row)"
+          >
+            {{ t('admin.usage.conversation') }}
+          </button>
+          <span v-else class="text-sm text-gray-400 dark:text-gray-500">-</span>
+        </template>
+
         <template #cell-actions="{ row }">
           <button
             type="button"
@@ -211,6 +223,7 @@ const allColumns = computed<Column[]>(() => [
   { key: 'created_at', label: t('admin.ops.errorLog.time'), sortable: true },
   { key: 'user_agent', label: t('usage.userAgent') },
   { key: 'client_ip', label: t('admin.ops.errorLog.ip') },
+  { key: 'conversation', label: t('admin.usage.conversation') },
   { key: 'actions', label: t('admin.ops.errorLog.action') },
 ])
 
@@ -299,6 +312,7 @@ interface Emits {
   (e: 'ipGeoBatchFailed'): void
   (e: 'sort', sortBy: string, sortOrder: 'asc' | 'desc'): void
   (e: 'userClick', userId: number, email?: string): void
+  (e: 'conversationClick', row: OpsErrorLog): void
 }
 
 const props = defineProps<Props>()

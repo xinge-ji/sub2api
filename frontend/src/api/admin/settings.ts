@@ -16,6 +16,11 @@ export interface DefaultSubscriptionSetting {
   validity_days: number;
 }
 
+export interface OpenAICodexUserAgentRule {
+  keyword: string;
+  user_agent: string;
+}
+
 // ── 平台限额类型 ──────────────────────────────────────────────────
 export type PlatformType = "anthropic" | "openai" | "gemini" | "antigravity" | "grok"
 export type QuotaWindowType = "daily" | "weekly" | "monthly"
@@ -569,6 +574,7 @@ export interface SystemSettings {
   enable_client_dateline_normalization: boolean;
   antigravity_user_agent_version: string;
   openai_codex_user_agent: string;
+  openai_codex_user_agent_rules: OpenAICodexUserAgentRule[];
   // codex_cli_only 加固
   min_codex_version: string;
   max_codex_version: string;
@@ -853,6 +859,7 @@ export interface UpdateSettingsRequest {
   enable_client_dateline_normalization?: boolean;
   antigravity_user_agent_version?: string;
   openai_codex_user_agent?: string;
+  openai_codex_user_agent_rules?: OpenAICodexUserAgentRule[];
   // codex_cli_only 加固
   min_codex_version?: string;
   max_codex_version?: string;

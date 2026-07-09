@@ -387,6 +387,12 @@ export default {
         openaiCodexUserAgent: 'OpenAI Codex UA',
         openaiCodexUserAgentPlaceholder: 'codex-tui/0.125.0 (Ubuntu 22.4.0; x86_64) xterm-256color (codex-tui; 0.125.0)',
         openaiCodexUserAgentHint: 'Used to bypass Cloudflare browser-UA challenges on the OpenAI upstream. Only applies when the client User-Agent is detected as a browser (Mozilla/...). Leave empty to use the built-in default.',
+        openaiCodexUserAgentRules: 'OpenAI Codex UA rules',
+        openaiCodexUserAgentRulesAdd: 'Add rule',
+        openaiCodexUserAgentRulesKeywordPlaceholder: 'URL keyword, e.g. /responses',
+        openaiCodexUserAgentRulesUserAgentPlaceholder: 'User-Agent to use when matched',
+        openaiCodexUserAgentRulesRemove: 'Remove',
+        openaiCodexUserAgentRulesHint: "Matches by request URL keyword. When matched, this row's User-Agent is used; otherwise it falls back to the OpenAI Codex UA above. Empty rows are not saved.",
         codexHardeningTitle: "Codex Settings",
         codexClientRestrictionTitle: "Codex client restriction",
         codexHardeningDesc:

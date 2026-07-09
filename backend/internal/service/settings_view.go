@@ -206,6 +206,7 @@ type SystemSettings struct {
 	RewriteMessageCacheControl             bool   // 是否改写 messages[*].content[*].cache_control（默认 false）
 	AntigravityUserAgentVersion            string // Antigravity 上游 User-Agent 版本号；空值使用配置/默认值
 	OpenAICodexUserAgent                   string // OpenAI Codex 上游完整 User-Agent；空值使用内置默认
+	OpenAICodexUserAgentRules              []OpenAICodexUserAgentRule
 	MinCodexVersion                        string // codex_cli_only 最低 Codex 引擎版本；空=不检查
 	MaxCodexVersion                        string // codex_cli_only 最高 Codex 引擎版本；空=不检查
 	CodexCLIOnlyBlacklist                  string // codex_cli_only 全局黑名单 JSON（[]AllowedClientEntry，OR deny）
@@ -268,6 +269,11 @@ type SystemSettings struct {
 
 	// 允许终端用户在用量页查看自己的失败请求
 	AllowUserViewErrorRequests bool
+}
+
+type OpenAICodexUserAgentRule struct {
+	Keyword   string `json:"keyword"`
+	UserAgent string `json:"user_agent"`
 }
 
 type DefaultSubscriptionSetting struct {

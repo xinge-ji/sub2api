@@ -83,9 +83,9 @@
           </button>
         </div>
 
-        <UsageFilters v-model="filters" ref="usageFiltersRef" flat :mode="activeTab" class="border-b border-gray-100 dark:border-dark-700/50" :start-date="startDate" :end-date="endDate" :exporting="exporting" :model-options="modelNameOptions" @change="applyFilters" @refresh="refreshData" @reset="resetFilters" @cleanup="openCleanupDialog" @export="exportToExcel">
+        <UsageFilters v-model="filters" ref="usageFiltersRef" flat :mode="usageFilterMode" class="border-b border-gray-100 dark:border-dark-700/50" :start-date="startDate" :end-date="endDate" :exporting="exporting" :model-options="modelNameOptions" @change="applyFilters" @refresh="refreshData" @reset="resetFilters" @cleanup="openCleanupDialog" @export="exportToExcel">
           <template #after-reset>
-            <div v-if="activeTab !== 'ranking'" class="relative" ref="columnDropdownRef">
+            <div v-if="activeTab === 'usage' || activeTab === 'errors'" class="relative" ref="columnDropdownRef">
               <button
                 @click="showColumnDropdown = !showColumnDropdown"
                 class="btn btn-secondary px-2 md:px-3"
@@ -131,9 +131,79 @@
             :default-sort-order="'desc'"
             @sort="handleSort"
             @userClick="handleUserClick"
+            @conversationClick="openConversationFromUsage"
             @ipGeoBatchFailed="handleIpGeoBatchFailed"
           />
           <Pagination v-if="pagination.total > 0" :page="pagination.page" :total="pagination.total" :page-size="pagination.page_size" @update:page="handlePageChange" @update:pageSize="handlePageSizeChange" />
+        </div>
+        <div v-show="activeTab === 'conversations'" class="overflow-hidden rounded-b-2xl">
+          <DataTable
+            :columns="conversationColumns"
+            :data="conversationRows"
+            :loading="conversationLoading"
+            clickable-rows
+            server-side-sort
+            default-sort-key="updated_at"
+            default-sort-order="desc"
+            @sort="onConversationSort"
+            @rowClick="openConversationFromList"
+          >
+            <template #cell-updated_at="{ value }">
+              <span class="text-sm text-gray-600 dark:text-gray-400">{{ formatDateTime(value) }}</span>
+            </template>
+            <template #cell-user="{ row }">
+              <div class="text-sm">
+                <button
+                  v-if="row.user_id && row.user_email"
+                  class="font-medium text-primary-600 underline decoration-dashed underline-offset-2 transition-colors hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300"
+                  :title="t('admin.usage.clickToViewBalance')"
+                  @click.stop="handleUserClick(row.user_id)"
+                >
+                  {{ row.user_email }}
+                </button>
+                <span v-else class="font-medium text-gray-900 dark:text-white">{{ row.user_email || '-' }}</span>
+                <span v-if="row.user_id" class="ml-1 text-gray-500 dark:text-gray-400">#{{ row.user_id }}</span>
+              </div>
+            </template>
+            <template #cell-api_key="{ row }">
+              <span class="text-sm text-gray-900 dark:text-white">{{ row.api_key_name || ('#' + row.api_key_id) }}</span>
+            </template>
+            <template #cell-model="{ row }">
+              <div class="space-y-0.5 text-xs">
+                <div class="break-all font-medium text-gray-900 dark:text-white">{{ row.requested_model || '-' }}</div>
+                <div v-if="row.upstream_model && row.upstream_model !== row.requested_model" class="break-all text-gray-500 dark:text-gray-400"><span class="mr-0.5">↳</span>{{ row.upstream_model }}</div>
+              </div>
+            </template>
+            <template #cell-effort="{ row }">
+              <span class="text-sm text-gray-600 dark:text-gray-400">{{ formatReasoningEffort(row.reasoning_effort) || '-' }}</span>
+            </template>
+            <template #cell-last_turn="{ row }">
+              <div class="max-w-[460px] space-y-1 text-xs">
+                <div class="truncate text-gray-700 dark:text-gray-300" :title="row.last_turn?.user_input_text || ''">
+                  <span class="font-medium text-gray-500 dark:text-gray-400">{{ t('admin.usage.conversationUser') }}:</span>
+                  <span class="ml-1">{{ row.last_turn?.user_input_text || '-' }}</span>
+                </div>
+                <div class="truncate text-gray-700 dark:text-gray-300" :title="row.last_turn?.assistant_output_text || ''">
+                  <span class="font-medium text-gray-500 dark:text-gray-400">{{ t('admin.usage.conversationAssistant') }}:</span>
+                  <span class="ml-1">{{ row.last_turn?.assistant_output_text || '-' }}</span>
+                </div>
+              </div>
+            </template>
+            <template #cell-turn_count="{ row }">
+              <span class="text-sm tabular-nums text-gray-700 dark:text-gray-300">{{ row.turn_count }}</span>
+            </template>
+            <template #cell-actions="{ row }">
+              <button
+                type="button"
+                class="inline-flex items-center rounded-md border border-gray-200 px-2 py-1 text-xs font-medium text-gray-700 transition-colors hover:border-primary-300 hover:text-primary-600 dark:border-dark-600 dark:text-gray-300 dark:hover:border-primary-500/40 dark:hover:text-primary-400"
+                @click.stop="openConversationFromList(row)"
+              >
+                {{ t('admin.usage.conversationView') }}
+              </button>
+            </template>
+            <template #empty><EmptyState :message="t('admin.usage.noConversations')" /></template>
+          </DataTable>
+          <Pagination v-if="conversationPagination.total > 0" :page="conversationPagination.page" :total="conversationPagination.total" :page-size="conversationPagination.page_size" @update:page="onConversationPage" @update:pageSize="onConversationPageSize" />
         </div>
         <div v-show="activeTab === 'errors'" class="overflow-hidden rounded-b-2xl">
           <OpsErrorLogTable
@@ -144,6 +214,7 @@
             user-clickable
             @userClick="handleUserClick"
             @openErrorDetail="openError"
+            @conversationClick="openConversationFromError"
             @sort="onErrSort"
             @update:page="onErrPage"
             @update:pageSize="onErrPageSize"
@@ -179,6 +250,68 @@
     :hide-actions="true"
     @close="showBalanceHistoryModal = false; balanceHistoryUser = null"
   />
+  <Teleport to="body">
+    <div v-if="showConversationModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div class="flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-lg bg-white shadow-xl dark:bg-dark-800">
+        <div class="flex items-center justify-between border-b border-gray-200 px-5 py-4 dark:border-dark-700">
+          <div>
+            <h3 class="text-lg font-semibold text-gray-900 dark:text-white">{{ t('admin.usage.conversationDetail') }}</h3>
+            <p v-if="selectedConversation?.session" class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {{ selectedConversation.session.client_session_id || selectedConversation.session.session_key }}
+            </p>
+          </div>
+          <button class="rounded p-1 text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-dark-700" @click="closeConversationModal">
+            <Icon name="x" size="md" />
+          </button>
+        </div>
+        <div class="min-h-0 flex-1 overflow-y-auto p-5">
+          <div v-if="conversationDetailLoading" class="py-10 text-center text-sm text-gray-500 dark:text-gray-400">
+            {{ t('common.loading') }}
+          </div>
+          <div v-else-if="!selectedConversation?.session" class="py-10 text-center text-sm text-gray-500 dark:text-gray-400">
+            {{ t('admin.usage.conversationNotFound') }}
+          </div>
+          <div v-else class="space-y-5">
+            <div class="grid gap-3 rounded-lg border border-gray-200 p-4 text-sm dark:border-dark-700 md:grid-cols-3">
+              <div><span class="text-gray-500 dark:text-gray-400">{{ t('usage.model') }}:</span> <span class="text-gray-900 dark:text-white">{{ selectedConversation.session.requested_model || '-' }}</span></div>
+              <div><span class="text-gray-500 dark:text-gray-400">{{ t('usage.upstreamModel') }}:</span> <span class="text-gray-900 dark:text-white">{{ selectedConversation.session.upstream_model || '-' }}</span></div>
+              <div><span class="text-gray-500 dark:text-gray-400">{{ t('usage.reasoningEffort') }}:</span> <span class="text-gray-900 dark:text-white">{{ formatReasoningEffort(selectedConversation.session.reasoning_effort) || '-' }}</span></div>
+              <div><span class="text-gray-500 dark:text-gray-400">{{ t('admin.usage.turnCount') }}:</span> <span class="text-gray-900 dark:text-white">{{ selectedConversation.session.turn_count }}</span></div>
+              <div><span class="text-gray-500 dark:text-gray-400">{{ t('usage.time') }}:</span> <span class="text-gray-900 dark:text-white">{{ formatDateTime(selectedConversation.session.created_at) }}</span></div>
+              <div><span class="text-gray-500 dark:text-gray-400">{{ t('admin.usage.updatedAt') }}:</span> <span class="text-gray-900 dark:text-white">{{ formatDateTime(selectedConversation.session.updated_at) }}</span></div>
+            </div>
+            <div class="space-y-4">
+              <div v-for="turn in selectedConversation.turns" :key="turn.id" class="rounded-lg border border-gray-200 p-4 dark:border-dark-700">
+                <div class="mb-3 flex flex-wrap items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+                  <span>#{{ turn.turn_index }}</span>
+                  <span>{{ formatDateTime(turn.created_at) }}</span>
+                  <span>{{ turn.request_id }}</span>
+                </div>
+                <div class="grid gap-4 md:grid-cols-2">
+                  <div>
+                    <div class="mb-1 text-xs font-medium uppercase text-gray-500 dark:text-gray-400">{{ t('admin.usage.conversationUser') }}</div>
+                    <pre class="max-h-80 whitespace-pre-wrap break-words rounded bg-gray-50 p-3 text-sm text-gray-800 dark:bg-dark-700 dark:text-gray-100">{{ turn.user_input_text || '-' }}</pre>
+                  </div>
+                  <div>
+                    <div class="mb-1 text-xs font-medium uppercase text-gray-500 dark:text-gray-400">{{ t('admin.usage.conversationAssistant') }}</div>
+                    <pre class="max-h-80 whitespace-pre-wrap break-words rounded bg-gray-50 p-3 text-sm text-gray-800 dark:bg-dark-700 dark:text-gray-100">{{ turn.assistant_output_text || '-' }}</pre>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <Pagination
+              v-if="conversationDetailPagination.total > conversationDetailPagination.page_size"
+              :page="conversationDetailPagination.page"
+              :total="conversationDetailPagination.total"
+              :page-size="conversationDetailPagination.page_size"
+              @update:page="onConversationDetailPage"
+              @update:pageSize="onConversationDetailPageSize"
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+  </Teleport>
 </template>
 
 <script setup lang="ts">
@@ -188,9 +321,11 @@ import { saveAs } from 'file-saver'
 import { useRoute } from 'vue-router'
 import { useAppStore } from '@/stores/app'; import { adminAPI } from '@/api/admin'; import { adminUsageAPI } from '@/api/admin/usage'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
-import { formatReasoningEffort } from '@/utils/format'
+import { formatDateTime, formatReasoningEffort } from '@/utils/format'
 import { resolveUsageRequestType, requestTypeToLegacyStream } from '@/utils/usageRequestType'
 import AppLayout from '@/components/layout/AppLayout.vue'; import Pagination from '@/components/common/Pagination.vue'; import Select from '@/components/common/Select.vue'; import DateRangePicker from '@/components/common/DateRangePicker.vue'
+import DataTable from '@/components/common/DataTable.vue'
+import EmptyState from '@/components/common/EmptyState.vue'
 import UsageStatsCards from '@/components/admin/usage/UsageStatsCards.vue'; import UsageFilters from '@/components/admin/usage/UsageFilters.vue'
 import UsageTable from '@/components/admin/usage/UsageTable.vue'; import UsageExportProgress from '@/components/admin/usage/UsageExportProgress.vue'
 import UserTokenRanking from '@/components/admin/usage/UserTokenRanking.vue'
@@ -203,7 +338,7 @@ import type { OpsErrorLog } from '@/api/admin/ops'
 import ModelDistributionChart from '@/components/charts/ModelDistributionChart.vue'; import GroupDistributionChart from '@/components/charts/GroupDistributionChart.vue'; import TokenUsageTrend from '@/components/charts/TokenUsageTrend.vue'
 import EndpointDistributionChart from '@/components/charts/EndpointDistributionChart.vue'
 import Icon from '@/components/icons/Icon.vue'
-import type { AdminUsageLog, TrendDataPoint, ModelStat, GroupStat, EndpointStat, AdminUser } from '@/types'; import type { AdminUsageStatsResponse, AdminUsageQueryParams } from '@/api/admin/usage'
+import type { AdminUsageLog, TrendDataPoint, ModelStat, GroupStat, EndpointStat, AdminUser, OpenAIConversationRetentionListItem, OpenAIConversationRetentionView } from '@/types'; import type { AdminUsageStatsResponse, AdminUsageQueryParams } from '@/api/admin/usage'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -297,6 +432,15 @@ const defaultRange = getLast24HoursRangeDates()
 const startDate = ref(defaultRange.start); const endDate = ref(defaultRange.end)
 const filters = ref<AdminUsageQueryParams>({ user_id: undefined, model: undefined, group_id: undefined, request_type: undefined, billing_type: null, start_date: startDate.value, end_date: endDate.value })
 const pagination = reactive({ page: 1, page_size: getPersistedPageSize(), total: 0 })
+const conversationRows = ref<OpenAIConversationRetentionListItem[]>([])
+const conversationLoading = ref(false)
+const conversationPagination = reactive({ page: 1, page_size: getPersistedPageSize(), total: 0 })
+const conversationSort = reactive({ sort_by: 'updated_at', sort_order: 'desc' as 'asc' | 'desc' })
+const showConversationModal = ref(false)
+const conversationDetailLoading = ref(false)
+const selectedConversation = ref<OpenAIConversationRetentionView | null>(null)
+const selectedConversationRequestId = ref('')
+const conversationDetailPagination = reactive({ page: 1, page_size: 20, total: 0 })
 const sortState = reactive({
   sort_by: 'created_at',
   sort_order: 'desc' as 'asc' | 'desc'
@@ -374,6 +518,36 @@ const loadLogs = async () => {
     )
     if(!c.signal.aborted) { usageLogs.value = res.items; pagination.total = res.total }
   } catch (error: any) { if(error?.name !== 'AbortError') console.error('Failed to load usage logs:', error) } finally { if(abortController === c) loading.value = false }
+}
+
+const buildConversationListParams = (): AdminUsageQueryParams & { reasoning_effort?: string; timezone?: string } => ({
+  page: conversationPagination.page,
+  page_size: conversationPagination.page_size,
+  user_id: filters.value.user_id,
+  api_key_id: filters.value.api_key_id,
+  account_id: filters.value.account_id,
+  group_id: filters.value.group_id,
+  model: filters.value.model,
+  request_type: filters.value.request_type,
+  start_date: filters.value.start_date,
+  end_date: filters.value.end_date,
+  timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+  sort_by: conversationSort.sort_by,
+  sort_order: conversationSort.sort_order
+})
+
+const loadConversations = async () => {
+  conversationLoading.value = true
+  try {
+    const res = await adminUsageAPI.listConversations(buildConversationListParams())
+    conversationRows.value = res.items || []
+    conversationPagination.total = res.total
+  } catch (error) {
+    console.error('Failed to load conversations:', error)
+    appStore.showError(t('admin.usage.failedToLoadConversations'))
+  } finally {
+    conversationLoading.value = false
+  }
 }
 const loadStats = async (force = false) => {
   const seq = ++statsReqSeq
@@ -498,10 +672,14 @@ const applyFilters = () => {
   loadModelStats(modelDistributionSource.value, true)
   loadChartData()
   errPage.value = 1
+  conversationPagination.page = 1
   if (activeTab.value === 'errors') {
     loadAdminErrors()
   } else {
     errRows.value = []
+  }
+  if (activeTab.value === 'conversations') {
+    loadConversations()
   }
 }
 const refreshData = () => {
@@ -511,6 +689,7 @@ const refreshData = () => {
   loadModelStats(modelDistributionSource.value, true)
   loadChartData()
   if (activeTab.value === 'errors') loadAdminErrors()
+  if (activeTab.value === 'conversations') loadConversations()
   if (rankingMounted.value) rankingRef.value?.reload()
 }
 const resetFilters = () => {
@@ -528,6 +707,72 @@ const handleSort = (key: string, order: 'asc' | 'desc') => {
   sortState.sort_order = order
   pagination.page = 1
   loadLogs()
+}
+
+const onConversationSort = (key: string, order: 'asc' | 'desc') => {
+  conversationSort.sort_by = key === 'effort' ? 'reasoning_effort' : key
+  conversationSort.sort_order = order
+  conversationPagination.page = 1
+  loadConversations()
+}
+
+const onConversationPage = (p: number) => { conversationPagination.page = p; loadConversations() }
+const onConversationPageSize = (s: number) => { conversationPagination.page_size = s; conversationPagination.page = 1; loadConversations() }
+
+const loadConversationDetailByRequestId = async (requestId: string, page = 1) => {
+  const normalized = requestId.trim()
+  if (!normalized) return
+  showConversationModal.value = true
+  conversationDetailLoading.value = true
+  selectedConversationRequestId.value = normalized
+  conversationDetailPagination.page = page
+  if (page === 1) selectedConversation.value = null
+  try {
+    const detail = await adminUsageAPI.getConversationByRequestId(normalized, {
+      page,
+      page_size: conversationDetailPagination.page_size
+    })
+    selectedConversation.value = detail
+    conversationDetailPagination.total = detail.total || 0
+    conversationDetailPagination.page = detail.page || page
+    conversationDetailPagination.page_size = detail.page_size || conversationDetailPagination.page_size
+  } catch (error) {
+    console.error('Failed to load conversation detail:', error)
+    appStore.showError(t('admin.usage.failedToLoadConversation'))
+  } finally {
+    conversationDetailLoading.value = false
+  }
+}
+
+const onConversationDetailPage = (p: number) => {
+  if (!selectedConversationRequestId.value) return
+  loadConversationDetailByRequestId(selectedConversationRequestId.value, p)
+}
+
+const onConversationDetailPageSize = (s: number) => {
+  conversationDetailPagination.page_size = s
+  if (!selectedConversationRequestId.value) return
+  loadConversationDetailByRequestId(selectedConversationRequestId.value, 1)
+}
+
+const openConversationFromUsage = (row: AdminUsageLog) => {
+  loadConversationDetailByRequestId(row.request_id || '')
+}
+
+const openConversationFromError = (row: OpsErrorLog) => {
+  loadConversationDetailByRequestId(row.request_id || row.client_request_id || '')
+}
+
+const openConversationFromList = (row: OpenAIConversationRetentionListItem) => {
+  loadConversationDetailByRequestId(row.last_request_id || row.first_request_id)
+}
+
+const closeConversationModal = () => {
+  showConversationModal.value = false
+  selectedConversation.value = null
+  selectedConversationRequestId.value = ''
+  conversationDetailPagination.page = 1
+  conversationDetailPagination.total = 0
 }
 
 const handleIpGeoBatchFailed = () => {
@@ -561,7 +806,7 @@ const exportToExcel = async () => {
       t('admin.usage.cacheReadCost'), t('admin.usage.cacheCreationCost'),
       t('usage.rate'), t('usage.accountMultiplier'), t('usage.original'), t('usage.userBilled'), t('usage.accountBilled'),
       t('usage.firstToken'), t('usage.duration'),
-      t('admin.usage.requestId'), t('usage.userAgent'), t('admin.usage.ipAddress')
+      t('admin.usage.requestId'), t('usage.inbound') + ' ' + t('usage.userAgent'), t('usage.upstream') + ' ' + t('usage.userAgent'), t('admin.usage.ipAddress')
     ]
     const ws = XLSX.utils.aoa_to_sheet([headers])
     while (true) {
@@ -580,7 +825,7 @@ const exportToExcel = async () => {
         log.rate_multiplier?.toPrecision(4) || '1.00', (log.account_rate_multiplier ?? 1).toPrecision(4),
         log.total_cost?.toFixed(6) || '0.000000', log.actual_cost?.toFixed(6) || '0.000000',
         ((log.account_stats_cost ?? log.total_cost) * (log.account_rate_multiplier ?? 1)).toFixed(6), log.first_token_ms ?? '', log.duration_ms,
-        log.request_id || '', log.user_agent || '', log.ip_address || ''
+        log.request_id || '', log.user_agent || '', log.upstream_user_agent || '', log.ip_address || ''
       ])
       if (rows.length) {
         XLSX.utils.sheet_add_aoa(ws, rows, { origin: -1 })
@@ -620,7 +865,8 @@ const allColumns = computed(() => [
   { key: 'latency', label: t('usage.latency'), sortable: false },
   { key: 'created_at', label: t('usage.time'), sortable: true },
   { key: 'user_agent', label: t('usage.userAgent'), sortable: false },
-  { key: 'ip_address', label: t('admin.usage.ipAddress'), sortable: false }
+  { key: 'ip_address', label: t('admin.usage.ipAddress'), sortable: false },
+  { key: 'conversation', label: t('admin.usage.conversation'), sortable: false }
 ])
 
 const hiddenColumns = reactive<Set<string>>(new Set())
@@ -671,6 +917,18 @@ const errAllColumns = computed(() => [
   { key: 'created_at', label: t('admin.ops.errorLog.time') },
   { key: 'user_agent', label: t('usage.userAgent') },
   { key: 'client_ip', label: t('admin.ops.errorLog.ip') },
+  { key: 'conversation', label: t('admin.usage.conversation') },
+  { key: 'actions', label: t('admin.ops.errorLog.action') },
+])
+
+const conversationColumns = computed(() => [
+  { key: 'updated_at', label: t('admin.usage.updatedAt'), sortable: true },
+  { key: 'user', label: t('admin.usage.user') },
+  { key: 'api_key', label: t('usage.apiKeyFilter') },
+  { key: 'model', label: t('usage.model'), sortable: true },
+  { key: 'effort', label: t('usage.reasoningEffort'), sortable: true },
+  { key: 'last_turn', label: t('admin.usage.lastTurn') },
+  { key: 'turn_count', label: t('admin.usage.turnCount'), sortable: true },
   { key: 'actions', label: t('admin.ops.errorLog.action') },
 ])
 
@@ -738,19 +996,26 @@ const loadSavedColumns = () => {
 }
 
 // Detail tabs
-type DetailTab = 'usage' | 'errors' | 'ranking'
+type DetailTab = 'usage' | 'conversations' | 'errors' | 'ranking'
 const activeTab = ref<DetailTab>('usage')
 const detailTabs = computed(() => [
   { key: 'usage' as const, label: t('usage.tabs.usage'), icon: 'document' as const },
+  { key: 'conversations' as const, label: t('usage.tabs.conversations'), icon: 'chat' as const },
   { key: 'errors' as const, label: t('usage.tabs.errors'), icon: 'exclamationTriangle' as const },
   { key: 'ranking' as const, label: t('usage.tabs.ranking'), icon: 'chart' as const },
 ])
+const usageFilterMode = computed<'usage' | 'errors' | 'ranking'>(() => {
+  if (activeTab.value === 'errors') return 'errors'
+  if (activeTab.value === 'ranking') return 'ranking'
+  return 'usage'
+})
 const usageFiltersRef = ref<InstanceType<typeof UsageFilters> | null>(null)
 const rankingMounted = ref(false)
 const rankingRef = ref<InstanceType<typeof UserTokenRanking> | null>(null)
 
 const switchTab = (tab: DetailTab) => {
   activeTab.value = tab
+  if (tab === 'conversations' && conversationRows.value.length === 0) loadConversations()
   if (tab === 'errors' && errRows.value.length === 0) loadAdminErrors()
   if (tab === 'ranking') rankingMounted.value = true
 }

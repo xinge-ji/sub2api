@@ -4898,6 +4898,79 @@
                 </p>
               </div>
 
+              <div>
+                <div class="mb-2 flex items-center justify-between gap-3">
+                  <label
+                    class="block text-sm font-medium text-gray-700 dark:text-gray-300"
+                  >
+                    {{
+                      t(
+                        "admin.settings.gatewayForwarding.openaiCodexUserAgentRules",
+                      )
+                    }}
+                  </label>
+                  <button
+                    type="button"
+                    class="btn btn-secondary btn-sm"
+                    @click="addOpenAICodexUserAgentRuleRow"
+                  >
+                    {{
+                      t(
+                        "admin.settings.gatewayForwarding.openaiCodexUserAgentRulesAdd",
+                      )
+                    }}
+                  </button>
+                </div>
+                <div class="space-y-3">
+                  <div
+                    v-for="(rule, index) in openAICodexUserAgentRuleRows"
+                    :key="`openai-codex-ua-rule-${index}`"
+                    class="rounded-xl border border-gray-200 p-3 dark:border-dark-700"
+                  >
+                    <div class="grid gap-3 lg:grid-cols-[minmax(0,240px)_minmax(0,1fr)_auto]">
+                      <input
+                        v-model="rule.keyword"
+                        type="text"
+                        class="input font-mono text-sm"
+                        :placeholder="
+                          t(
+                            'admin.settings.gatewayForwarding.openaiCodexUserAgentRulesKeywordPlaceholder',
+                          )
+                        "
+                      />
+                      <input
+                        v-model="rule.userAgent"
+                        type="text"
+                        class="input font-mono text-sm"
+                        :placeholder="
+                          t(
+                            'admin.settings.gatewayForwarding.openaiCodexUserAgentRulesUserAgentPlaceholder',
+                          )
+                        "
+                      />
+                      <button
+                        type="button"
+                        class="btn btn-secondary btn-sm"
+                        @click="removeOpenAICodexUserAgentRuleRow(index)"
+                      >
+                        {{
+                          t(
+                            "admin.settings.gatewayForwarding.openaiCodexUserAgentRulesRemove",
+                          )
+                        }}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                  {{
+                    t(
+                      "admin.settings.gatewayForwarding.openaiCodexUserAgentRulesHint",
+                    )
+                  }}
+                </p>
+              </div>
+
             </div>
           </div>
 
@@ -7750,6 +7823,7 @@ import type {
   UpdateSettingsRequest,
   DefaultSubscriptionSetting,
   DefaultPlatformQuotasMap,
+  OpenAICodexUserAgentRule,
   OpenAIFastPolicyRule,
   WeChatConnectMode,
   WebSearchEmulationConfig,
@@ -8688,6 +8762,7 @@ const form = reactive<SettingsForm>({
   enable_client_dateline_normalization: true,
   antigravity_user_agent_version: "",
   openai_codex_user_agent: "",
+  openai_codex_user_agent_rules: [] as OpenAICodexUserAgentRule[],
   // codex_cli_only 加固
   min_codex_version: "",
   max_codex_version: "",
@@ -9533,9 +9608,14 @@ interface CodexClientRow {
   uaContains: string; // 逗号分隔，序列化时拆成 ua_contains 数组
   skipEngineFingerprint?: boolean; // 仅白名单：命中即跳过引擎指纹门
 }
+interface OpenAICodexUserAgentRuleRow {
+  keyword: string;
+  userAgent: string;
+}
 const codexBlacklistRows = ref<CodexClientRow[]>([]);
 const codexWhitelistRows = ref<CodexClientRow[]>([]);
 const codexFingerprintRows = ref<FingerprintSignalRow[]>([]);
+const openAICodexUserAgentRuleRows = ref<OpenAICodexUserAgentRuleRow[]>([]);
 const codexFingerprintNoRequired = computed(
   () => !codexFingerprintRows.value.some((r) => r.required),
 );
@@ -9544,6 +9624,35 @@ function addCodexFingerprintRow(): void {
 }
 function removeCodexFingerprintRow(i: number): void {
   codexFingerprintRows.value.splice(i, 1);
+}
+
+function addOpenAICodexUserAgentRuleRow(): void {
+  openAICodexUserAgentRuleRows.value.push({ keyword: "", userAgent: "" });
+}
+
+function removeOpenAICodexUserAgentRuleRow(i: number): void {
+  openAICodexUserAgentRuleRows.value.splice(i, 1);
+}
+
+function normalizeOpenAICodexUserAgentRuleRows(
+  rules: OpenAICodexUserAgentRule[] | null | undefined,
+): OpenAICodexUserAgentRuleRow[] {
+  if (!Array.isArray(rules)) return [];
+  return rules
+    .map((rule) => ({
+      keyword: typeof rule?.keyword === "string" ? rule.keyword : "",
+      userAgent: typeof rule?.user_agent === "string" ? rule.user_agent : "",
+    }))
+    .filter((rule) => rule.keyword.trim() || rule.userAgent.trim());
+}
+
+function serializeOpenAICodexUserAgentRuleRows(): OpenAICodexUserAgentRule[] {
+  return openAICodexUserAgentRuleRows.value
+    .map((rule) => ({
+      keyword: rule.keyword.trim(),
+      user_agent: rule.userAgent.trim(),
+    }))
+    .filter((rule) => rule.keyword || rule.user_agent);
 }
 
 function parseCodexEntriesToRows(raw: string): CodexClientRow[] {
@@ -9630,6 +9739,9 @@ async function loadSettings() {
     );
     codexWhitelistRows.value = parseCodexEntriesToRows(
       form.codex_cli_only_whitelist,
+    );
+    openAICodexUserAgentRuleRows.value = normalizeOpenAICodexUserAgentRuleRows(
+      settings.openai_codex_user_agent_rules,
     );
     codexFingerprintRows.value = form.codex_cli_only_engine_fingerprint_signals
       ? parseFingerprintSignalsToRows(form.codex_cli_only_engine_fingerprint_signals)
@@ -10154,6 +10266,7 @@ async function saveSettings() {
         form.antigravity_user_agent_version?.trim() || "",
       openai_codex_user_agent:
         form.openai_codex_user_agent?.trim() || "",
+      openai_codex_user_agent_rules: serializeOpenAICodexUserAgentRuleRows(),
       min_codex_version: form.min_codex_version?.trim() || "",
       max_codex_version: form.max_codex_version?.trim() || "",
       codex_cli_only_allow_app_server_clients:
@@ -10347,6 +10460,9 @@ async function saveSettings() {
       form.wechat_connect_mode,
     );
     form.oidc_connect_client_secret = "";
+    openAICodexUserAgentRuleRows.value = normalizeOpenAICodexUserAgentRuleRows(
+      updated.openai_codex_user_agent_rules,
+    );
     // Refresh OpenAI fast/flex policy from server response
     if (
       updated.openai_fast_policy_settings &&

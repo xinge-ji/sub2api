@@ -56,10 +56,11 @@ type UsageStats struct {
 
 // UsageService 使用统计服务
 type UsageService struct {
-	usageRepo            UsageLogRepository
-	userRepo             UserRepository
-	entClient            *dbent.Client
-	authCacheInvalidator APIKeyAuthCacheInvalidator
+	usageRepo                 UsageLogRepository
+	userRepo                  UserRepository
+	entClient                 *dbent.Client
+	authCacheInvalidator      APIKeyAuthCacheInvalidator
+	conversationRetentionRepo OpenAIConversationRetentionRepository
 }
 
 // NewUsageService 创建使用统计服务实例
@@ -70,6 +71,13 @@ func NewUsageService(usageRepo UsageLogRepository, userRepo UserRepository, entC
 		entClient:            entClient,
 		authCacheInvalidator: authCacheInvalidator,
 	}
+}
+
+func (s *UsageService) SetOpenAIConversationRetentionRepository(repo OpenAIConversationRetentionRepository) {
+	if s == nil {
+		return
+	}
+	s.conversationRetentionRepo = repo
 }
 
 // Create 创建使用日志
@@ -460,4 +468,37 @@ func (s *UsageService) GetStatsWithFilters(ctx context.Context, filters usagesta
 		return nil, fmt.Errorf("get usage stats with filters: %w", err)
 	}
 	return stats, nil
+}
+
+func (s *UsageService) GetOpenAIConversationByRequestID(ctx context.Context, requestID string, params pagination.PaginationParams) (*OpenAIConversationRetentionView, error) {
+	if s == nil || s.conversationRetentionRepo == nil {
+		return &OpenAIConversationRetentionView{
+			Session:  nil,
+			Turns:    []*OpenAIConversationRetentionTurn{},
+			Total:    0,
+			Page:     params.Page,
+			PageSize: params.Limit(),
+			Pages:    0,
+		}, nil
+	}
+	view, err := s.conversationRetentionRepo.GetConversationByRequestID(ctx, requestID, params)
+	if err != nil {
+		return nil, fmt.Errorf("get openai conversation by request id: %w", err)
+	}
+	return view, nil
+}
+
+func (s *UsageService) ListOpenAIConversations(ctx context.Context, filters OpenAIConversationRetentionListFilters, params pagination.PaginationParams) ([]*OpenAIConversationRetentionListItem, *pagination.PaginationResult, error) {
+	if s == nil || s.conversationRetentionRepo == nil {
+		return []*OpenAIConversationRetentionListItem{}, &pagination.PaginationResult{
+			Page:     params.Page,
+			PageSize: params.PageSize,
+			Total:    0,
+		}, nil
+	}
+	items, result, err := s.conversationRetentionRepo.ListConversations(ctx, filters, params)
+	if err != nil {
+		return nil, nil, fmt.Errorf("list openai conversations: %w", err)
+	}
+	return items, result, nil
 }

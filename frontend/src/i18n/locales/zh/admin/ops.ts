@@ -696,6 +696,9 @@ export default {
         minuteMetricsRetentionDays: '分钟指标保留天数',
         hourlyMetricsRetentionDays: '小时指标保留天数',
         retentionDaysHint: '建议保留 7-90 天，过长会占用存储空间；填 0 表示每次定时清理时清空所有历史',
+        openaiConversationRetentionEnabled: '保留 OpenAI 会话记录',
+        openaiConversationRetentionHint: '开启后记录 OpenAI Responses / Chat Completions 的用户输入与助手输出，用于在用量明细和错误请求之间排查上下文。',
+        openaiConversationRetentionDays: 'OpenAI 会话记录保留天数',
         aggregation: '预聚合任务',
         enableAggregation: '启用预聚合任务',
         aggregationHint: '预聚合可提升长时间窗口查询性能',
@@ -730,6 +733,7 @@ export default {
         validation: {
           title: '请先修正以下问题',
           retentionDaysRange: '保留天数必须在 0-365 天之间（0 = 每次清理时清空所有）',
+          openaiConversationRetentionRange: 'OpenAI 会话记录保留天数必须在 0-3650 天之间（0 = 每次清理时清空所有）',
           slaMinPercentRange: 'SLA最低百分比必须在0-100之间',
           ttftP99MaxRange: 'TTFT P99最大值必须大于等于0',
           requestErrorRateMaxRange: '请求错误率最大值必须在0-100之间',

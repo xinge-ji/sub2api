@@ -20,18 +20,21 @@ import (
 
 // OpenAIRecordUsageInput input for recording usage
 type OpenAIRecordUsageInput struct {
-	Result             *OpenAIForwardResult
-	APIKey             *APIKey
-	User               *User
-	Account            *Account
-	Subscription       *UserSubscription
-	InboundEndpoint    string
-	UpstreamEndpoint   string
-	UserAgent          string // 请求的 User-Agent
-	IPAddress          string // 请求的客户端 IP 地址
-	RequestPayloadHash string
-	APIKeyService      APIKeyQuotaUpdater
-	QuotaPlatform      string // user×platform quota platform resolved by the handler before async billing.
+	Result               *OpenAIForwardResult
+	APIKey               *APIKey
+	User                 *User
+	Account              *Account
+	Subscription         *UserSubscription
+	InboundEndpoint      string
+	UpstreamEndpoint     string
+	RequestBody          []byte
+	ClientSessionID      string
+	ClientConversationID string
+	UserAgent            string // 请求的 User-Agent
+	IPAddress            string // 请求的客户端 IP 地址
+	RequestPayloadHash   string
+	APIKeyService        APIKeyQuotaUpdater
+	QuotaPlatform        string // user×platform quota platform resolved by the handler before async billing.
 	// CyberBlocked 为 true 时把该用量行标记为 cyber（request_type=cyber），计费逻辑不变。
 	CyberBlocked bool
 	ChannelUsageFields
@@ -54,6 +57,7 @@ type CyberPolicyUsageInput struct {
 	InboundEndpoint    string
 	UpstreamEndpoint   string
 	UserAgent          string
+	UpstreamUserAgent  string
 	IPAddress          string
 	RequestPayloadHash string
 	APIKeyService      APIKeyQuotaUpdater
@@ -71,9 +75,10 @@ func (s *OpenAIGatewayService) RecordCyberPolicyUsageLog(ctx context.Context, in
 		return
 	}
 	result := &OpenAIForwardResult{
-		RequestID: in.RequestID,
-		Model:     in.Model,
-		Stream:    in.Stream,
+		RequestID:         in.RequestID,
+		Model:             in.Model,
+		Stream:            in.Stream,
+		UpstreamUserAgent: strings.TrimSpace(in.UpstreamUserAgent),
 		Usage: OpenAIUsage{
 			InputTokens:  in.InputTokens,
 			OutputTokens: in.OutputTokens,
@@ -327,6 +332,9 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	if input.UserAgent != "" {
 		usageLog.UserAgent = &input.UserAgent
 	}
+	if upstreamUserAgent := strings.TrimSpace(result.UpstreamUserAgent); upstreamUserAgent != "" {
+		usageLog.UpstreamUserAgent = &upstreamUserAgent
+	}
 
 	// 添加 IPAddress
 	if input.IPAddress != "" {
@@ -350,6 +358,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 
 	if s.cfg != nil && s.cfg.RunMode == config.RunModeSimple {
 		writeUsageLogBestEffort(ctx, s.usageLogRepo, usageLog, "service.openai_gateway")
+		s.recordOpenAIConversationRetentionBestEffort(ctx, input, usageLog, requestedModel)
 		logger.LegacyPrintf("service.openai_gateway", "[SIMPLE MODE] Usage recorded (not billed): user=%d, tokens=%d", usageLog.UserID, usageLog.TotalTokens())
 		s.deferredService.ScheduleLastUsedUpdate(account.ID)
 		return nil
@@ -382,8 +391,81 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		return billingErr
 	}
 	writeUsageLogBestEffort(ctx, s.usageLogRepo, usageLog, "service.openai_gateway")
+	s.recordOpenAIConversationRetentionBestEffort(ctx, input, usageLog, requestedModel)
 
 	return nil
+}
+
+func (s *OpenAIGatewayService) recordOpenAIConversationRetentionBestEffort(ctx context.Context, input *OpenAIRecordUsageInput, usageLog *UsageLog, requestedModel string) {
+	if s == nil || s.conversationRetentionRepo == nil || s.settingService == nil || input == nil || input.Result == nil || usageLog == nil {
+		return
+	}
+	if !s.settingService.IsOpenAIConversationRetentionEnabled(ctx) {
+		return
+	}
+	if strings.TrimSpace(usageLog.RequestID) == "" {
+		return
+	}
+	inboundEndpoint := strings.TrimSpace(input.InboundEndpoint)
+	if !shouldRecordOpenAIConversationRetention(inboundEndpoint) {
+		return
+	}
+
+	accountID := optionalInt64Ptr(usageLog.AccountID)
+	groupID := usageLog.GroupID
+	clientSessionID := strings.TrimSpace(input.ClientSessionID)
+	if clientSessionID == "" {
+		clientSessionID = strings.TrimSpace(input.ClientConversationID)
+	}
+	if clientSessionID == "" {
+		clientSessionID = ExtractOpenAIClientSessionID(nil, input.RequestBody)
+	}
+	reasoningEffort := ""
+	if input.Result.ReasoningEffort != nil {
+		reasoningEffort = strings.TrimSpace(*input.Result.ReasoningEffort)
+	}
+	upstreamModel := ""
+	if usageLog.UpstreamModel != nil {
+		upstreamModel = strings.TrimSpace(*usageLog.UpstreamModel)
+	}
+	if upstreamModel == "" {
+		upstreamModel = strings.TrimSpace(input.Result.UpstreamModel)
+	}
+	if upstreamModel == "" {
+		upstreamModel = strings.TrimSpace(input.Result.Model)
+	}
+	requestType := usageLog.EffectiveRequestType()
+	if usageLog.RequestType != RequestTypeUnknown {
+		requestType = usageLog.RequestType
+	}
+
+	_, _, err := s.conversationRetentionRepo.CreateTurn(ctx, &OpenAIConversationRetentionRecordInput{
+		UserID:           usageLog.UserID,
+		APIKeyID:         usageLog.APIKeyID,
+		AccountID:        accountID,
+		GroupID:          groupID,
+		RequestID:        usageLog.RequestID,
+		ResponseID:       input.Result.ResponseID,
+		RequestedModel:   requestedModel,
+		UpstreamModel:    upstreamModel,
+		ReasoningEffort:  reasoningEffort,
+		Stream:           usageLog.Stream,
+		RequestType:      requestType,
+		InboundEndpoint:  normalizeOpenAIConversationRetentionEndpoint(inboundEndpoint),
+		UpstreamEndpoint: strings.TrimSpace(input.UpstreamEndpoint),
+		ClientSessionID:  clientSessionID,
+		UserInputText:    ExtractOpenAIUserInputText(input.RequestBody, inboundEndpoint),
+		AssistantText:    input.Result.FinalAssistantText,
+		CreatedAt:        usageLog.CreatedAt,
+	})
+	if err != nil {
+		logger.L().With(
+			zap.String("component", "service.openai_gateway"),
+			zap.String("request_id", usageLog.RequestID),
+			zap.Int64("user_id", usageLog.UserID),
+			zap.Int64("api_key_id", usageLog.APIKeyID),
+		).Warn("openai_conversation_retention.record_failed", zap.Error(err))
+	}
 }
 
 func (s *OpenAIGatewayService) calculateOpenAIRecordUsageCost(

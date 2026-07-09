@@ -762,6 +762,7 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		ResponseHeaders:       lease.HandshakeHeaders(),
 		Duration:              time.Since(startTime),
 		FirstTokenMs:          firstTokenMs,
+		UpstreamUserAgent:     strings.TrimSpace(wsHeaders.Get("user-agent")),
 	}, nil
 }
 

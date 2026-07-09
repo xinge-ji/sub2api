@@ -58,6 +58,7 @@ var usageLogInsertArgTypes = [...]string{
 	"integer",     // duration_ms
 	"integer",     // first_token_ms
 	"text",        // user_agent
+	"text",        // upstream_user_agent
 	"text",        // ip_address
 	"integer",     // image_count
 	"text",        // image_size
@@ -253,6 +254,7 @@ func (r *usageLogRepository) createSingle(ctx context.Context, sqlq sqlExecutor,
 			duration_ms,
 			first_token_ms,
 			user_agent,
+			upstream_user_agent,
 			ip_address,
 			image_count,
 			image_size,
@@ -707,6 +709,7 @@ func buildUsageLogBatchInsertQuery(keys []string, preparedByKey map[string]usage
 			duration_ms,
 			first_token_ms,
 			user_agent,
+			upstream_user_agent,
 			ip_address,
 			image_count,
 			image_size,
@@ -794,6 +797,7 @@ func buildUsageLogBatchInsertQuery(keys []string, preparedByKey map[string]usage
 				duration_ms,
 				first_token_ms,
 				user_agent,
+				upstream_user_agent,
 				ip_address,
 				image_count,
 				image_size,
@@ -852,6 +856,7 @@ func buildUsageLogBatchInsertQuery(keys []string, preparedByKey map[string]usage
 				duration_ms,
 				first_token_ms,
 				user_agent,
+				upstream_user_agent,
 				ip_address,
 				image_count,
 				image_size,
@@ -950,6 +955,7 @@ func buildUsageLogBestEffortInsertQuery(preparedList []usageLogInsertPrepared) (
 			duration_ms,
 			first_token_ms,
 			user_agent,
+			upstream_user_agent,
 			ip_address,
 			image_count,
 			image_size,
@@ -1034,6 +1040,7 @@ func buildUsageLogBestEffortInsertQuery(preparedList []usageLogInsertPrepared) (
 			duration_ms,
 			first_token_ms,
 			user_agent,
+			upstream_user_agent,
 			ip_address,
 			image_count,
 			image_size,
@@ -1092,6 +1099,7 @@ func buildUsageLogBestEffortInsertQuery(preparedList []usageLogInsertPrepared) (
 			duration_ms,
 			first_token_ms,
 			user_agent,
+			upstream_user_agent,
 			ip_address,
 			image_count,
 			image_size,
@@ -1158,6 +1166,7 @@ func execUsageLogInsertNoResult(ctx context.Context, sqlq sqlExecutor, prepared 
 			duration_ms,
 			first_token_ms,
 			user_agent,
+			upstream_user_agent,
 			ip_address,
 			image_count,
 			image_size,
@@ -1211,6 +1220,7 @@ func prepareUsageLogInsert(log *service.UsageLog) usageLogInsertPrepared {
 	duration := nullInt(log.DurationMs)
 	firstToken := nullInt(log.FirstTokenMs)
 	userAgent := nullString(log.UserAgent)
+	upstreamUserAgent := nullString(log.UpstreamUserAgent)
 	ipAddress := nullString(log.IPAddress)
 	imageSize := nullString(log.ImageSize)
 	imageInputSize := nullString(log.ImageInputSize)
@@ -1278,6 +1288,7 @@ func prepareUsageLogInsert(log *service.UsageLog) usageLogInsertPrepared {
 			duration,
 			firstToken,
 			userAgent,
+			upstreamUserAgent,
 			ipAddress,
 			log.ImageCount,
 			imageSize,

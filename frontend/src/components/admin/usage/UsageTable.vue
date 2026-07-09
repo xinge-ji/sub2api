@@ -221,8 +221,26 @@
         </template>
 
         <template #cell-user_agent="{ row }">
-          <span v-if="row.user_agent" class="text-sm text-gray-600 dark:text-gray-400 block max-w-[320px] truncate" :title="row.user_agent">{{ formatUserAgent(row.user_agent) }}</span>
-          <span v-else class="text-sm text-gray-400 dark:text-gray-500">-</span>
+          <div class="max-w-[320px] space-y-1 text-xs">
+            <div class="break-all text-gray-700 dark:text-gray-300">
+              <span class="font-medium text-gray-500 dark:text-gray-400">{{ t('usage.inbound') }}:</span>
+              <span
+                v-if="row.user_agent"
+                class="ml-1"
+                :title="row.user_agent"
+              >{{ formatUserAgent(row.user_agent) }}</span>
+              <span v-else class="ml-1 text-gray-400 dark:text-gray-500">-</span>
+            </div>
+            <div class="break-all text-gray-700 dark:text-gray-300">
+              <span class="font-medium text-gray-500 dark:text-gray-400">{{ t('usage.upstream') }}:</span>
+              <span
+                v-if="row.upstream_user_agent"
+                class="ml-1"
+                :title="row.upstream_user_agent"
+              >{{ formatUserAgent(row.upstream_user_agent) }}</span>
+              <span v-else class="ml-1 text-gray-400 dark:text-gray-500">-</span>
+            </div>
+          </div>
         </template>
 
         <template #cell-ip_address="{ row }">
@@ -230,6 +248,18 @@
             <span class="text-sm font-mono text-gray-600 dark:text-gray-400">{{ row.ip_address }}</span>
             <IpGeoCell :ip="row.ip_address" />
           </div>
+          <span v-else class="text-sm text-gray-400 dark:text-gray-500">-</span>
+        </template>
+
+        <template #cell-conversation="{ row }">
+          <button
+            v-if="row.request_id"
+            type="button"
+            class="inline-flex items-center rounded-md border border-gray-200 px-2 py-1 text-xs font-medium text-gray-700 transition-colors hover:border-primary-300 hover:text-primary-600 dark:border-dark-600 dark:text-gray-300 dark:hover:border-primary-500/40 dark:hover:text-primary-400"
+            @click="$emit('conversationClick', row)"
+          >
+            {{ t('admin.usage.conversation') }}
+          </button>
           <span v-else class="text-sm text-gray-400 dark:text-gray-500">-</span>
         </template>
 
@@ -538,6 +568,7 @@ const props = withDefaults(defineProps<Props>(), {
 })
 const emit = defineEmits<{
   userClick: [userID: number, email?: string]
+  conversationClick: [row: AdminUsageLog]
   sort: [key: string, order: 'asc' | 'desc']
   ipGeoBatchFailed: []
 }>()

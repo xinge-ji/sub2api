@@ -384,6 +384,12 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeyEnableClientDatelineNormalization] = strconv.FormatBool(settings.EnableClientDatelineNormalization)
 	updates[SettingKeyAntigravityUserAgentVersion] = antigravity.NormalizeUserAgentVersion(settings.AntigravityUserAgentVersion)
 	updates[SettingKeyOpenAICodexUserAgent] = strings.TrimSpace(settings.OpenAICodexUserAgent)
+	openAICodexUserAgentRules := NormalizeOpenAICodexUserAgentRules(settings.OpenAICodexUserAgentRules)
+	openAICodexUserAgentRulesJSON, err := json.Marshal(openAICodexUserAgentRules)
+	if err != nil {
+		return nil, err
+	}
+	updates[SettingKeyOpenAICodexUserAgentRules] = string(openAICodexUserAgentRulesJSON)
 	// codex_cli_only 加固
 	updates[SettingKeyMinCodexVersion] = strings.TrimSpace(settings.MinCodexVersion)
 	updates[SettingKeyMaxCodexVersion] = strings.TrimSpace(settings.MaxCodexVersion)
@@ -554,6 +560,12 @@ func (s *SettingService) refreshCachedSettings(settings *SystemSettings) {
 	}
 	s.openAICodexUACache.Store(&cachedOpenAICodexUserAgent{
 		value:     codexUA,
+		expiresAt: time.Now().Add(openAICodexUserAgentCacheTTL).UnixNano(),
+	})
+	openAICodexUserAgentRules := NormalizeOpenAICodexUserAgentRules(settings.OpenAICodexUserAgentRules)
+	s.openAICodexUARulesSF.Forget("openai_codex_user_agent_rules")
+	s.openAICodexUARulesCache.Store(&cachedOpenAICodexUserAgentRules{
+		value:     cloneOpenAICodexUserAgentRules(openAICodexUserAgentRules),
 		expiresAt: time.Now().Add(openAICodexUserAgentCacheTTL).UnixNano(),
 	})
 	openAIAdvancedSchedulerSettingSF.Forget(openAIAdvancedSchedulerSettingKey)

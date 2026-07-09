@@ -91,6 +91,11 @@ type cachedOpenAICodexUserAgent struct {
 	expiresAt int64 // unix nano
 }
 
+type cachedOpenAICodexUserAgentRules struct {
+	value     []OpenAICodexUserAgentRule
+	expiresAt int64 // unix nano
+}
+
 type cachedOpenAIQuotaAutoPauseSettings struct {
 	settings  OpsOpenAIAccountQuotaAutoPauseSettings
 	expiresAt int64
@@ -280,6 +285,114 @@ func (s *SettingService) GetOpenAICodexUserAgent(ctx context.Context) string {
 		return ua
 	}
 	return fallback
+}
+
+// GetOpenAICodexUserAgentRules returns request URL keyword based OpenAI Codex UA overrides.
+func (s *SettingService) GetOpenAICodexUserAgentRules(ctx context.Context) []OpenAICodexUserAgentRule {
+	if s == nil || s.settingRepo == nil {
+		return nil
+	}
+	if cached, ok := s.openAICodexUARulesCache.Load().(*cachedOpenAICodexUserAgentRules); ok && cached != nil {
+		if time.Now().UnixNano() < cached.expiresAt {
+			return cloneOpenAICodexUserAgentRules(cached.value)
+		}
+	}
+
+	result, _, _ := s.openAICodexUARulesSF.Do("openai_codex_user_agent_rules", func() (any, error) {
+		if cached, ok := s.openAICodexUARulesCache.Load().(*cachedOpenAICodexUserAgentRules); ok && cached != nil {
+			if time.Now().UnixNano() < cached.expiresAt {
+				return cloneOpenAICodexUserAgentRules(cached.value), nil
+			}
+		}
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		dbCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), openAICodexUserAgentDBTimeout)
+		defer cancel()
+		value, err := s.settingRepo.GetValue(dbCtx, SettingKeyOpenAICodexUserAgentRules)
+		if err != nil && !errors.Is(err, ErrSettingNotFound) {
+			slog.Warn("failed to get openai codex user agent rules setting", "error", err)
+			s.openAICodexUARulesCache.Store(&cachedOpenAICodexUserAgentRules{
+				value:     nil,
+				expiresAt: time.Now().Add(openAICodexUserAgentErrorTTL).UnixNano(),
+			})
+			return []OpenAICodexUserAgentRule(nil), nil
+		}
+		rules := NormalizeOpenAICodexUserAgentRules(parseOpenAICodexUserAgentRules(value))
+		s.openAICodexUARulesCache.Store(&cachedOpenAICodexUserAgentRules{
+			value:     cloneOpenAICodexUserAgentRules(rules),
+			expiresAt: time.Now().Add(openAICodexUserAgentCacheTTL).UnixNano(),
+		})
+		return cloneOpenAICodexUserAgentRules(rules), nil
+	})
+	if rules, ok := result.([]OpenAICodexUserAgentRule); ok {
+		return cloneOpenAICodexUserAgentRules(rules)
+	}
+	return nil
+}
+
+func parseOpenAICodexUserAgentRules(raw string) []OpenAICodexUserAgentRule {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || raw == "[]" {
+		return nil
+	}
+	var rules []OpenAICodexUserAgentRule
+	if err := json.Unmarshal([]byte(raw), &rules); err != nil {
+		return nil
+	}
+	return rules
+}
+
+func NormalizeOpenAICodexUserAgentRules(rules []OpenAICodexUserAgentRule) []OpenAICodexUserAgentRule {
+	if len(rules) == 0 {
+		return nil
+	}
+	result := make([]OpenAICodexUserAgentRule, 0, len(rules))
+	for _, rule := range rules {
+		keyword := strings.TrimSpace(rule.Keyword)
+		userAgent := strings.TrimSpace(rule.UserAgent)
+		if keyword == "" || userAgent == "" {
+			continue
+		}
+		result = append(result, OpenAICodexUserAgentRule{
+			Keyword:   keyword,
+			UserAgent: userAgent,
+		})
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
+}
+
+func cloneOpenAICodexUserAgentRules(rules []OpenAICodexUserAgentRule) []OpenAICodexUserAgentRule {
+	if len(rules) == 0 {
+		return nil
+	}
+	out := make([]OpenAICodexUserAgentRule, len(rules))
+	copy(out, rules)
+	return out
+}
+
+func (s *SettingService) IsOpenAIConversationRetentionEnabled(ctx context.Context) bool {
+	if s == nil || s.settingRepo == nil {
+		return false
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	dbCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+	defer cancel()
+	raw, err := s.settingRepo.GetValue(dbCtx, SettingKeyOpsAdvancedSettings)
+	if err != nil {
+		return false
+	}
+	cfg := defaultOpsAdvancedSettings()
+	if err := json.Unmarshal([]byte(raw), cfg); err != nil {
+		return false
+	}
+	normalizeOpsAdvancedSettings(cfg)
+	return cfg.DataRetention.OpenAIConversationRetentionEnabled
 }
 
 var legacyClaudeCodeCodexWhitelistEntry = openai.AllowedClientEntry{
