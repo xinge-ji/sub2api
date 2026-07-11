@@ -1072,9 +1072,8 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 		req.Header.Set("user-agent", codexCLIUserAgent)
 	}
 
-	// 浏览器型 UA 兜底：仅 OAuth（ChatGPT 内部接口）账号生效，若最终 user-agent 仍为浏览器
-	// （Chrome/Firefox/Safari/Edge 等），替换为后台配置的 Codex UA，避免 Cloudflare 触发 JS 质询。
-	s.overrideBrowserUserAgent(ctx, account, req)
+	// OpenAI Codex UA 规则优先按入站 User-Agent 匹配；未命中时保留浏览器型 UA 兜底。
+	s.applyOpenAICodexUserAgentOverride(ctx, account, req, c.GetHeader("User-Agent"))
 
 	// 终态收口：originator 必须与最终 User-Agent 首段配套且为官方身份，否则上游 404（issue #3901）。
 	if account.Type == AccountTypeOAuth {
@@ -1092,16 +1091,22 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 	return req, nil
 }
 
-// overrideBrowserUserAgent 检查请求的最终 user-agent，若为浏览器 UA 则替换为后台配置的 Codex UA。
-// 用于规避 Cloudflare 对浏览器型 UA 在 ChatGPT 内部接口上的访问质询。
-// 影响范围严格限定：仅 OAuth（Codex/ChatGPT 内部接口）账号生效；API Key 等其他账号原样透传。
-// 仅在识别为浏览器（Mozilla/...）时改写，其他 CLI/工具 UA 不动。
-func (s *OpenAIGatewayService) overrideBrowserUserAgent(ctx context.Context, account *Account, req *http.Request) {
+// applyOpenAICodexUserAgentOverride applies admin configured OpenAI Codex UA behavior.
+// Rules match the inbound downstream User-Agent by case-insensitive keyword and take
+// precedence over the browser-UA fallback. The fallback still only rewrites browser-like
+// upstream UA values for OAuth accounts.
+func (s *OpenAIGatewayService) applyOpenAICodexUserAgentOverride(ctx context.Context, account *Account, req *http.Request, downstreamUserAgent string) {
 	if req == nil || account == nil {
 		return
 	}
 	if account.Type != AccountTypeOAuth {
 		return
+	}
+	if s != nil && s.settingService != nil {
+		if matched := s.matchOpenAICodexUserAgentRule(ctx, downstreamUserAgent); matched != "" {
+			req.Header.Set("user-agent", matched)
+			return
+		}
 	}
 	currentUA := req.Header.Get("user-agent")
 	if !openai.IsBrowserUserAgent(currentUA) {
@@ -1109,11 +1114,6 @@ func (s *OpenAIGatewayService) overrideBrowserUserAgent(ctx context.Context, acc
 	}
 	codexUA := DefaultOpenAICodexUserAgent
 	if s != nil && s.settingService != nil {
-		if matched := s.matchOpenAICodexUserAgentRule(ctx, req); matched != "" {
-			codexUA = matched
-			req.Header.Set("user-agent", codexUA)
-			return
-		}
 		if v := strings.TrimSpace(s.settingService.GetOpenAICodexUserAgent(ctx)); v != "" {
 			codexUA = v
 		}
@@ -1121,23 +1121,24 @@ func (s *OpenAIGatewayService) overrideBrowserUserAgent(ctx context.Context, acc
 	req.Header.Set("user-agent", codexUA)
 }
 
-func (s *OpenAIGatewayService) matchOpenAICodexUserAgentRule(ctx context.Context, req *http.Request) string {
-	if s == nil || s.settingService == nil || req == nil {
+func (s *OpenAIGatewayService) matchOpenAICodexUserAgentRule(ctx context.Context, downstreamUserAgent string) string {
+	if s == nil || s.settingService == nil {
 		return ""
 	}
-	requestTarget := strings.ToLower(strings.TrimSpace(req.URL.RequestURI()))
-	if requestTarget == "" {
-		requestTarget = strings.ToLower(strings.TrimSpace(req.URL.Path))
-	}
-	if requestTarget == "" {
+	return matchOpenAICodexUserAgentRuleValue(downstreamUserAgent, s.settingService.GetOpenAICodexUserAgentRules(ctx))
+}
+
+func matchOpenAICodexUserAgentRuleValue(downstreamUserAgent string, rules []OpenAICodexUserAgentRule) string {
+	target := strings.ToLower(strings.TrimSpace(downstreamUserAgent))
+	if target == "" || len(rules) == 0 {
 		return ""
 	}
-	for _, rule := range s.settingService.GetOpenAICodexUserAgentRules(ctx) {
+	for _, rule := range rules {
 		keyword := strings.ToLower(strings.TrimSpace(rule.Keyword))
 		if keyword == "" {
 			continue
 		}
-		if strings.Contains(requestTarget, keyword) {
+		if strings.Contains(target, keyword) {
 			return strings.TrimSpace(rule.UserAgent)
 		}
 	}

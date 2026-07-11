@@ -382,10 +382,10 @@ export default {
         openaiCodexUserAgentHint: '用于规避 OpenAI 上游 Cloudflare 对浏览器 UA 的访问质询。仅在检测到客户端 User-Agent 为浏览器（Mozilla/...）时生效，其他客户端原样透传。留空使用内置默认值。',
         openaiCodexUserAgentRules: 'OpenAI Codex UA 规则',
         openaiCodexUserAgentRulesAdd: '添加规则',
-        openaiCodexUserAgentRulesKeywordPlaceholder: 'URL 关键字，例如 /responses',
+        openaiCodexUserAgentRulesKeywordPlaceholder: '下游 UA 关键字，例如 codex-vscode',
         openaiCodexUserAgentRulesUserAgentPlaceholder: '匹配后使用的 User-Agent',
         openaiCodexUserAgentRulesRemove: '删除',
-        openaiCodexUserAgentRulesHint: '按请求 URL 关键字匹配，命中后使用该行 User-Agent；未命中时回退到上方 OpenAI Codex UA。留空行不会保存。',
+        openaiCodexUserAgentRulesHint: '按下游 User-Agent 关键字不区分大小写匹配，命中后使用该行 User-Agent；未命中时继续按上方 OpenAI Codex UA 的浏览器 UA 兜底逻辑处理。留空行不会保存。',
         codexHardeningTitle: 'Codex 设置',
         codexClientRestrictionTitle: 'Codex 客户端限制',
         codexHardeningDesc:

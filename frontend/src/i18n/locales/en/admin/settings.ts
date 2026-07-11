@@ -389,10 +389,10 @@ export default {
         openaiCodexUserAgentHint: 'Used to bypass Cloudflare browser-UA challenges on the OpenAI upstream. Only applies when the client User-Agent is detected as a browser (Mozilla/...). Leave empty to use the built-in default.',
         openaiCodexUserAgentRules: 'OpenAI Codex UA rules',
         openaiCodexUserAgentRulesAdd: 'Add rule',
-        openaiCodexUserAgentRulesKeywordPlaceholder: 'URL keyword, e.g. /responses',
+        openaiCodexUserAgentRulesKeywordPlaceholder: 'Inbound UA keyword, e.g. codex-vscode',
         openaiCodexUserAgentRulesUserAgentPlaceholder: 'User-Agent to use when matched',
         openaiCodexUserAgentRulesRemove: 'Remove',
-        openaiCodexUserAgentRulesHint: "Matches by request URL keyword. When matched, this row's User-Agent is used; otherwise it falls back to the OpenAI Codex UA above. Empty rows are not saved.",
+        openaiCodexUserAgentRulesHint: "Matches inbound User-Agent keywords case-insensitively. When matched, this row's User-Agent is used; otherwise the browser-UA fallback uses the OpenAI Codex UA above. Empty rows are not saved.",
         codexHardeningTitle: "Codex Settings",
         codexClientRestrictionTitle: "Codex client restriction",
         codexHardeningDesc:

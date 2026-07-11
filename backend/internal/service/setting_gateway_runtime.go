@@ -287,7 +287,7 @@ func (s *SettingService) GetOpenAICodexUserAgent(ctx context.Context) string {
 	return fallback
 }
 
-// GetOpenAICodexUserAgentRules returns request URL keyword based OpenAI Codex UA overrides.
+// GetOpenAICodexUserAgentRules returns inbound User-Agent keyword based OpenAI Codex UA overrides.
 func (s *SettingService) GetOpenAICodexUserAgentRules(ctx context.Context) []OpenAICodexUserAgentRule {
 	if s == nil || s.settingRepo == nil {
 		return nil

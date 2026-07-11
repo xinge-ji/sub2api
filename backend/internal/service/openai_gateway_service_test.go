@@ -25,6 +25,52 @@ import (
 // 编译期接口断言
 var _ AccountRepository = (*stubOpenAIAccountRepo)(nil)
 var _ GatewayCache = (*stubGatewayCache)(nil)
+var _ SettingRepository = (*openAICodexUASettingRepoStub)(nil)
+
+type openAICodexUASettingRepoStub struct {
+	values map[string]string
+}
+
+func (s *openAICodexUASettingRepoStub) Get(ctx context.Context, key string) (*Setting, error) {
+	panic("unexpected Get call")
+}
+
+func (s *openAICodexUASettingRepoStub) GetValue(ctx context.Context, key string) (string, error) {
+	if v, ok := s.values[key]; ok {
+		return v, nil
+	}
+	return "", ErrSettingNotFound
+}
+
+func (s *openAICodexUASettingRepoStub) Set(ctx context.Context, key, value string) error {
+	panic("unexpected Set call")
+}
+
+func (s *openAICodexUASettingRepoStub) GetMultiple(ctx context.Context, keys []string) (map[string]string, error) {
+	result := make(map[string]string, len(keys))
+	for _, key := range keys {
+		if v, ok := s.values[key]; ok {
+			result[key] = v
+		}
+	}
+	return result, nil
+}
+
+func (s *openAICodexUASettingRepoStub) SetMultiple(ctx context.Context, settings map[string]string) error {
+	panic("unexpected SetMultiple call")
+}
+
+func (s *openAICodexUASettingRepoStub) GetAll(ctx context.Context) (map[string]string, error) {
+	out := make(map[string]string, len(s.values))
+	for key, value := range s.values {
+		out[key] = value
+	}
+	return out, nil
+}
+
+func (s *openAICodexUASettingRepoStub) Delete(ctx context.Context, key string) error {
+	panic("unexpected Delete call")
+}
 
 type stubOpenAIAccountRepo struct {
 	AccountRepository
@@ -2772,6 +2818,40 @@ func TestOpenAIBuildUpstreamRequestOAuthOfficialClientOriginatorCompatibility(t 
 			require.Equal(t, tt.wantUA, req.Header.Get("User-Agent"))
 		})
 	}
+}
+
+func TestOpenAICodexUserAgentRuleMatchesInboundUserAgentCaseInsensitive(t *testing.T) {
+	got := matchOpenAICodexUserAgentRuleValue("MyClient/1.0 CODEX-VSCODE", []OpenAICodexUserAgentRule{
+		{Keyword: "missing", UserAgent: "codex-tui/0.1"},
+		{Keyword: "codex-vscode", UserAgent: "codex-vscode/1.2.3"},
+	})
+
+	require.Equal(t, "codex-vscode/1.2.3", got)
+}
+
+func TestOpenAIBuildUpstreamRequestOAuthAppliesCodexUserAgentRuleFromInboundUserAgent(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader([]byte(`{"model":"gpt-5"}`)))
+	c.Request.Header.Set("User-Agent", "MyClient/1.0 CODEX-VSCODE")
+
+	settingSvc := NewSettingService(&openAICodexUASettingRepoStub{
+		values: map[string]string{
+			SettingKeyOpenAICodexUserAgentRules: fmt.Sprintf(`[{"keyword":"codex-vscode","user_agent":%q}]`, DefaultOpenAICodexUserAgent),
+		},
+	}, &config.Config{})
+	svc := &OpenAIGatewayService{settingService: settingSvc}
+	account := &Account{
+		Type:        AccountTypeOAuth,
+		Credentials: map[string]any{"chatgpt_account_id": "chatgpt-acc"},
+	}
+
+	req, err := svc.buildUpstreamRequest(c.Request.Context(), c, account, []byte(`{"model":"gpt-5"}`), "token", false, "", false)
+	require.NoError(t, err)
+	require.Equal(t, DefaultOpenAICodexUserAgent, req.Header.Get("User-Agent"))
+	require.Equal(t, "codex-tui", req.Header.Get("originator"))
 }
 
 // ==================== P1-08 修复：model 替换性能优化测试 ====================
