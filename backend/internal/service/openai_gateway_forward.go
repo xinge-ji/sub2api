@@ -1092,14 +1092,11 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 }
 
 // applyOpenAICodexUserAgentOverride applies admin configured OpenAI Codex UA behavior.
-// Rules match the inbound downstream User-Agent by case-insensitive keyword and take
-// precedence over the browser-UA fallback. The fallback still only rewrites browser-like
-// upstream UA values for OAuth accounts.
+// Rules match the inbound downstream User-Agent by case-insensitive keyword and apply
+// to both OpenAI OAuth and API-key accounts. The browser-UA fallback still only rewrites
+// browser-like upstream UA values for OAuth accounts.
 func (s *OpenAIGatewayService) applyOpenAICodexUserAgentOverride(ctx context.Context, account *Account, req *http.Request, downstreamUserAgent string) {
 	if req == nil || account == nil {
-		return
-	}
-	if account.Type != AccountTypeOAuth {
 		return
 	}
 	if s != nil && s.settingService != nil {
@@ -1107,6 +1104,9 @@ func (s *OpenAIGatewayService) applyOpenAICodexUserAgentOverride(ctx context.Con
 			req.Header.Set("user-agent", matched)
 			return
 		}
+	}
+	if account.Type != AccountTypeOAuth {
+		return
 	}
 	currentUA := req.Header.Get("user-agent")
 	if !openai.IsBrowserUserAgent(currentUA) {

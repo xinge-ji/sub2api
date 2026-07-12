@@ -2854,6 +2854,66 @@ func TestOpenAIBuildUpstreamRequestOAuthAppliesCodexUserAgentRuleFromInboundUser
 	require.Equal(t, "codex-tui", req.Header.Get("originator"))
 }
 
+func TestOpenAIBuildUpstreamRequestAPIKeyAppliesCodexUserAgentRuleFromInboundUserAgent(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader([]byte(`{"model":"gpt-5"}`)))
+	c.Request.Header.Set("User-Agent", "codex_cli_rs/0.144.1 (Rocky Linux 9.5.0; x86_64) unknown")
+
+	wantUA := "codex-tui/0.144.1 (Rocky Linux 9.5.0; x86_64) xterm-256color (codex-tui; 0.144.1)"
+	settingSvc := NewSettingService(&openAICodexUASettingRepoStub{
+		values: map[string]string{
+			SettingKeyOpenAICodexUserAgentRules: fmt.Sprintf(`[{"keyword":"rocky","user_agent":%q}]`, wantUA),
+		},
+	}, &config.Config{})
+	svc := &OpenAIGatewayService{settingService: settingSvc}
+	account := &Account{
+		Type:        AccountTypeAPIKey,
+		Credentials: map[string]any{"api_key": "sk-test"},
+	}
+
+	req, err := svc.buildUpstreamRequest(c.Request.Context(), c, account, []byte(`{"model":"gpt-5"}`), "sk-test", false, "", false)
+	require.NoError(t, err)
+	require.Equal(t, wantUA, req.Header.Get("User-Agent"))
+}
+
+func TestOpenAIWSHeadersApplyCodexUserAgentRuleFromInboundUserAgent(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	c.Request.Header.Set("User-Agent", "codex_cli_rs/0.144.1 (Rocky Linux 9.5.0; x86_64) unknown")
+
+	wantUA := "codex-tui/0.144.1 (Rocky Linux 9.5.0; x86_64) xterm-256color (codex-tui; 0.144.1)"
+	settingSvc := NewSettingService(&openAICodexUASettingRepoStub{
+		values: map[string]string{
+			SettingKeyOpenAICodexUserAgentRules: fmt.Sprintf(`[{"keyword":"rocky","user_agent":%q}]`, wantUA),
+		},
+	}, &config.Config{})
+	svc := &OpenAIGatewayService{settingService: settingSvc}
+	account := &Account{
+		Type:        AccountTypeAPIKey,
+		Credentials: map[string]any{"api_key": "sk-test"},
+	}
+
+	headers, _, err := svc.buildOpenAIWSHeaders(
+		c.Request.Context(),
+		c,
+		account,
+		"sk-test",
+		OpenAIWSProtocolDecision{Transport: OpenAIUpstreamTransportResponsesWebsocketV2},
+		false,
+		"",
+		"",
+		"",
+	)
+	require.NoError(t, err)
+	require.Equal(t, wantUA, headers.Get("User-Agent"))
+}
+
 // ==================== P1-08 修复：model 替换性能优化测试 ====================
 
 // ==================== P1-08 修复：model 替换性能优化测试 =============

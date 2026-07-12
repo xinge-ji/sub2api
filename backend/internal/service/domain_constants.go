@@ -509,7 +509,7 @@ const (
 	SettingKeyOpenAICodexUserAgent = "openai_codex_user_agent"
 	// SettingKeyOpenAICodexUserAgentRules OpenAI Codex UA 规则列表（JSON 数组）。
 	// 当入站 User-Agent 不区分大小写包含 keyword 时，转发给 OpenAI 上游前会替换为对应 user_agent。
-	// 仅用于 OpenAI OAuth 链路，规则命中优先于浏览器型 UA 兜底。
+	// 适用于 OpenAI OAuth 与 API Key 链路，规则命中优先于 OAuth 浏览器型 UA 兜底。
 	SettingKeyOpenAICodexUserAgentRules = "openai_codex_user_agent_rules"
 	// SettingKeyOpenAIAllowClaudeCodeCodexPlugin 已废弃：历史全局开关只作为升级迁移输入读取。
 	// 迁移后等价规则写入 SettingKeyCodexCLIOnlyWhitelist，不再参与运行时判定。
