@@ -264,7 +264,7 @@ func (s *OpenAIGatewayService) buildOpenAIAlphaSearchResponsesWebSearchRequest(c
 		req.Header.Set("Session_ID", isolated)
 		req.Header.Set("Conversation_ID", isolated)
 	}
-	s.overrideBrowserUserAgent(ctx, account, req)
+	s.applyOpenAICodexUserAgentOverride(ctx, account, req, openAIAlphaSearchInboundHeader(c, "User-Agent"))
 	enforceCodexIdentityHeaders(req.Header)
 	account.ApplyHeaderOverrides(req.Header)
 	return req, nil
@@ -402,10 +402,12 @@ func (s *OpenAIGatewayService) buildOpenAIAlphaSearchRequest(ctx context.Context
 		if s.cfg != nil && s.cfg.Gateway.ForceCodexCLI {
 			req.Header.Set("User-Agent", codexCLIUserAgent)
 		}
-		s.overrideBrowserUserAgent(ctx, account, req)
-		enforceCodexIdentityHeaders(req.Header)
 	}
 
+	s.applyOpenAICodexUserAgentOverride(ctx, account, req, openAIAlphaSearchInboundHeader(c, "User-Agent"))
+	if account.Type == AccountTypeOAuth {
+		enforceCodexIdentityHeaders(req.Header)
+	}
 	account.ApplyHeaderOverrides(req.Header)
 	stripOpenAIAlphaSearchResponsesHeaders(req.Header)
 	return req, nil
