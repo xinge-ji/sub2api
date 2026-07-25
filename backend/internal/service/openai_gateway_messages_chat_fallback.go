@@ -60,6 +60,9 @@ func (s *OpenAIGatewayService) forwardAnthropicViaRawChatCompletions(
 	billingModel := resolveOpenAIForwardModel(account, anthropicReq.Model, defaultMappedModel)
 	upstreamModel := normalizeOpenAIModelForUpstream(account, billingModel)
 	chatReq.Model = upstreamModel
+	if chatReq.ReasoningEffort != "" {
+		chatReq.ReasoningEffort = normalizeOpenAIReasoningEffortForModel(chatReq.ReasoningEffort, upstreamModel)
+	}
 	chatReq.Stream = clientStream
 	if clientStream {
 		chatReq.StreamOptions = &apicompat.ChatStreamOptions{IncludeUsage: true}

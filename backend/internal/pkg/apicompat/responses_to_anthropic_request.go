@@ -84,7 +84,7 @@ func defaultThinkingBudget(effort string) int {
 }
 
 // mapResponsesEffortToAnthropic converts OpenAI Responses reasoning effort to
-// Anthropic effort levels. Reverse of mapAnthropicEffortToResponses.
+// the closest Anthropic effort levels for the reverse protocol bridge.
 //
 //	low    → low
 //	medium → medium

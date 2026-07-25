@@ -55,16 +55,10 @@ func AnthropicToResponses(req *AnthropicRequest) (*ResponsesRequest, error) {
 		out.Tools = convertAnthropicToolsToResponses(req.Tools)
 	}
 
-	// Determine reasoning effort: only output_config.effort controls the
-	// level; thinking.type is ignored. Default follows Codex CLI / airgate's
-	// Anthropic bridge shape, which uses medium when unset.
-	// Anthropic levels map 1:1 to OpenAI: low→low, medium→medium, high→high, max→xhigh.
-	effort := "medium"
-	if req.OutputConfig != nil && req.OutputConfig.Effort != "" {
-		effort = req.OutputConfig.Effort
-	}
+	// Prefer explicit effort, then infer Claude Code's legacy thinking budget.
+	effort := resolveAnthropicReasoningEffort(req)
 	out.Reasoning = &ResponsesReasoning{
-		Effort:  mapAnthropicEffortToResponses(effort),
+		Effort:  effort,
 		Summary: "auto",
 	}
 
@@ -424,19 +418,58 @@ func extractAnthropicTextFromBlocks(blocks []AnthropicContentBlock) string {
 // mapAnthropicEffortToResponses converts Anthropic reasoning effort levels to
 // OpenAI Responses API effort levels.
 //
-// Both APIs default to "high". The mapping is 1:1 for shared levels;
-// only Anthropic's "max" (Opus 4.6 exclusive) maps to OpenAI's "xhigh"
-// (GPT-5.2+ exclusive) as both represent the highest reasoning tier.
+// Claude Code's named tiers map one level up.
 //
-//	low    → low
-//	medium → medium
-//	high   → high
-//	max    → xhigh
+//	low    → medium
+//	medium → high
+//	high   → xhigh
+//	max    → max
+//
+// Callers normalize max to xhigh for upstream models that do not support max.
 func mapAnthropicEffortToResponses(effort string) string {
-	if effort == "max" {
+	switch effort {
+	case "low":
+		return "medium"
+	case "medium":
+		return "high"
+	case "high":
 		return "xhigh"
+	case "max":
+		return "max"
+	default:
+		return effort
 	}
-	return effort // low→low, medium→medium, high→high, unknown→passthrough
+}
+
+const (
+	// These budgets are also emitted in the reverse Responses -> Anthropic
+	// conversion. Claude Code's standard values map exactly to these tiers.
+	anthropicThinkingBudgetLowMax    = 1024
+	anthropicThinkingBudgetMediumMax = 4096
+	anthropicThinkingBudgetHighMax   = 10240
+)
+
+// resolveAnthropicReasoningEffort prefers Anthropic's explicit effort. Claude
+// Code versions that only provide thinking.budget_tokens use the equivalent
+// four-tier budget as a compatibility fallback.
+func resolveAnthropicReasoningEffort(req *AnthropicRequest) string {
+	if req != nil && req.OutputConfig != nil && req.OutputConfig.Effort != "" {
+		return mapAnthropicEffortToResponses(req.OutputConfig.Effort)
+	}
+	if req == nil || req.Thinking == nil || req.Thinking.BudgetTokens <= 0 {
+		return "medium"
+	}
+
+	switch budget := req.Thinking.BudgetTokens; {
+	case budget <= anthropicThinkingBudgetLowMax:
+		return mapAnthropicEffortToResponses("low")
+	case budget <= anthropicThinkingBudgetMediumMax:
+		return mapAnthropicEffortToResponses("medium")
+	case budget <= anthropicThinkingBudgetHighMax:
+		return mapAnthropicEffortToResponses("high")
+	default:
+		return mapAnthropicEffortToResponses("max")
+	}
 }
 
 // convertAnthropicToolsToResponses maps Anthropic tool definitions to
